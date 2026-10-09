@@ -183,7 +183,9 @@ local function FillCraftRow(row, item)
 
     cells.cost:SetText(Money(info.cost) .. (info.partial and "+" or ""))
     if info.price then
-        cells.price:SetText(Money(info.price))
+        -- ~ marks a price Goldsmith adjusted (an undercut or shelf listing
+        -- replaced by the usual price); the hover says why
+        cells.price:SetText((info.priceNote and "~" or "") .. Money(info.price))
         if info.priceAge and info.priceAge >= STALE_PRICE_DAYS then
             cells.price:SetTextColor(addon:Color("warning"))
         end
@@ -401,9 +403,10 @@ local function CraftTooltip(tooltip, item)
         -- Where the price came from, on its own row: "Goldsmith Data, 09:15",
         -- "Auctionator, 2 days old", "TSM". From the row's own price, since
         -- gear tiers are priced by link, not by their shared item ID.
-        Line(tooltip, "Price data", addon:PriceSourceText(item.itemID, info.priceSource, info.priceAge),
-            stale and "warning" or "muted")
-        Why(tooltip, "What it sells for now: the lowest listing, or the usual price when the lowest is far below it (a stray cheap listing). Price data says where it came from and how old it is.")
+        Line(tooltip, "Price data", addon:PriceSourceText(item.itemID, info.priceSource, info.priceAge, info.priceNote),
+            (stale or info.priceNote) and "warning" or "muted")
+        addon:AddPriceNote(tooltip, info.priceNote)
+        Why(tooltip, "What it sells for now: the lowest listing, or the usual price when the lowest is far below it (a stray cheap listing) or far above what it sells for (a shelf price). A ~ before the price in the list means it was adjusted. Price data says where it came from and how old it is.")
         Line(tooltip, "Profit each", string.format("%s%s", Signed(info.profit),
             info.margin and (" (" .. Roi(info.margin) .. " ROI)") or ""), addon:MoneyColor(info.profit))
         Why(tooltip, "AH price less the 5% cut, less the cost. ROI is that profit as a share of the cost: 100% doubles your gold.")
@@ -2910,7 +2913,23 @@ local function Reset(v)
     v.list:ScrollToTop()
 end
 
-addon:RegisterView("crafts", { create = Create, refresh = Refresh, reset = Reset, ownLoading = true })
+-- What narrows the list right now, for the window's Filtered marker.
+-- Show (Recommended by default) isn't one: it's the list's purpose, and
+-- its own dropdown names it.
+local function Filters(v)
+    local ui, list = GoldsmithDB.ui2, {}
+    if ui.craftsOnlyMine then
+        table.insert(list, { label = "Only " .. (addon.char.name or "me"), clear = function() ui.craftsOnlyMine = nil end })
+    end
+    if ui.craftsGear == "hide" then
+        table.insert(list, { label = "No gear", clear = function() ui.craftsGear = nil end })
+    elseif ui.craftsGear == "only" then
+        table.insert(list, { label = "Gear only", clear = function() ui.craftsGear = nil end })
+    end
+    return list
+end
+
+addon:RegisterView("crafts", { create = Create, refresh = Refresh, reset = Reset, filters = Filters, ownLoading = true })
 
 -- Keep the planner's Craft button current while it's showing: the
 -- profession opening or closing, bags changing as you craft or buy,

@@ -364,8 +364,8 @@ local function GetTierPrice(td, tier)
         end
     end
     if not sharedID then
-        local price, source, age = addon:GetMarketPriceInfo(out.itemID)
-        return price, source, age, out.itemID
+        local price, source, age, note = addon:GetMarketPriceInfo(out.itemID)
+        return price, source, age, out.itemID, note
     end
 
     local api = Auctionator and Auctionator.API and Auctionator.API.v1
@@ -376,9 +376,9 @@ local function GetTierPrice(td, tier)
             -- the item's usual price across tiers
             -- Auctionator only gives an age per item ID, so every tier of
             -- the item shares it
-            local checked, source, age = addon:CheckAgainstMarket(out.itemID, price, "Auctionator",
+            local checked, source, age, note = addon:CheckAgainstMarket(out.itemID, price, "Auctionator",
                 addon:GetAuctionatorAge(out.itemID))
-            return checked, source, age, out.itemID
+            return checked, source, age, out.itemID, note
         end
     end
 end
@@ -630,7 +630,7 @@ end
 -- data (they show as a single row).
 --   { tier, tierCount, itemID, scenario, mix, concentrate, concentration
 --     (expected per craft), cost, partial, price, priceSource, priceAge,
---     profit, margin, demand, demandSource, concentrationValue, scenarios }
+--     priceNote (why the price was adjusted, if it was), profit, margin, demand, demandSource, concentrationValue, scenarios }
 -- Rows are shared until data changes (see tierRowsCache); don't change them.
 local function BuildTierRows(recipe)
     local td = addon:StatsChar().tierData[recipe.recipeID]
@@ -639,12 +639,12 @@ local function BuildTierRows(recipe)
     local evaluated = {}
     for _, s in ipairs(td.scenarios) do
         local cost, complete, outputPerCraft = ScenarioCost(recipe, s)
-        local price, source, age, itemID = GetTierPrice(td, s.tier)
+        local price, source, age, itemID, note = GetTierPrice(td, s.tier)
         local e = {
             scenario = s, tier = s.tier, mix = s.mix, concentrate = s.concentrate,
             concentration = ExpectedConcentration(recipe, s),
             cost = cost, partial = not complete, outputPerCraft = outputPerCraft,
-            price = price, priceSource = source, priceAge = age, itemID = itemID,
+            price = price, priceSource = source, priceAge = age, priceNote = note, itemID = itemID,
         }
         if price then
             e.profit = price * (1 - AH_CUT) - cost

@@ -490,8 +490,16 @@ end
 
 -- Where a price came from, and how old, from GetAHPriceInfo's source and
 -- age: "Goldsmith Data, 09:15", "Auctionator, 2 days old", "TSM",
--- "TSM market value", "live, 5m ago". Short, for tooltips.
-function addon:PriceSourceText(itemID, source, age)
+-- "TSM market value", "live, 5m ago". Short, for tooltips. With the note
+-- GetAHPriceInfo gives when it replaced the lowest listing (an undercut, a
+-- shelf price), ", adjusted" is added, so a changed price is never passed
+-- off as the listing (design review, 2026-10-09: show what the numbers do).
+function addon:PriceSourceText(itemID, source, age, note)
+    local text = addon:PlainPriceSourceText(itemID, source, age)
+    return note and (text .. ", adjusted") or text
+end
+
+function addon:PlainPriceSourceText(itemID, source, age)
     if source == "Live" then
         local book = itemID and GoldsmithDB.orderBooks[itemID]
         return book and string.format("live, %dm ago", math.floor((time() - book.time) / 60)) or "live"
@@ -513,16 +521,31 @@ end
 
 -- Where the price in use came from, and how old (see PriceSourceText)
 function addon:PriceAgeText(itemID)
-    local price, source, age = addon:GetMarketPriceInfo(itemID)
+    local price, source, age, note = addon:GetMarketPriceInfo(itemID)
     if not price then return "no price" end
-    return addon:PriceSourceText(itemID, source, age)
+    return addon:PriceSourceText(itemID, source, age, note)
 end
 
 -- Same as PriceAgeText, for the AH price only (ignoring vendor prices)
 function addon:AHPriceAgeText(itemID)
-    local price, source, age = addon:GetAHPriceInfo(itemID)
+    local price, source, age, note = addon:GetAHPriceInfo(itemID)
     if not price then return "no price" end
-    return addon:PriceSourceText(itemID, source, age)
+    return addon:PriceSourceText(itemID, source, age, note)
+end
+
+-- Why a price was adjusted ("listed at 81,484g, but it usually sells for
+-- 1,200g"), or nil when it's the lowest listing as is
+function addon:PriceNote(itemID)
+    local _, _, _, note = addon:GetMarketPriceInfo(itemID)
+    return note
+end
+
+-- A hover line saying a price was adjusted and why. Always shown, not only
+-- with Ctrl: it changes what the number means.
+function addon:AddPriceNote(tooltip, note)
+    if not note then return end
+    local r, g, b = addon:Color("warning")
+    tooltip:AddLine("Adjusted: " .. note .. ".", r, g, b, true)
 end
 
 -- When an item's Auctionator price was seen today ("14:32"), from
@@ -1889,7 +1912,7 @@ end
 function addon:GetRecipeProfit(recipe, itemID)
     local cost, missing, breakdown, stats = addon:GetRecipeCost(recipe)
     local priceItemID = itemID or recipe.outputItemID
-    local price, priceSource, priceAge = addon:GetMarketPriceInfo(priceItemID)
+    local price, priceSource, priceAge, priceNote = addon:GetMarketPriceInfo(priceItemID)
     local demand, demandSource = addon:GetDemand(priceItemID, recipe.outputName)
     local profit, margin
     if price then
@@ -1905,6 +1928,7 @@ function addon:GetRecipeProfit(recipe, itemID)
         price = price,
         priceSource = priceSource,
         priceAge = priceAge,
+        priceNote = priceNote,
         priceAgeText = price and addon:PriceAgeText(priceItemID),
         demand = demand,
         demandSource = demandSource,

@@ -375,6 +375,29 @@ local function Reset(view)
     view.list:ScrollToTop()
 end
 
-addon:RegisterView("history", { create = Create, refresh = Refresh, reset = Reset, ownLoading = true })
+-- What narrows the list right now, for the window's Filtered marker
+local function Filters(view)
+    local ui, list = GoldsmithDB.ui2, {}
+    if ui.historyKind then
+        for _, kind in ipairs(KINDS) do
+            if kind.key == ui.historyKind then
+                table.insert(list, { label = kind.label, clear = function() ui.historyKind = nil end })
+            end
+        end
+    end
+    if ui.historyCharacter then
+        local name = ui.historyCharacter
+        for _, c in ipairs(addon:GetHistoryCharacters()) do
+            if c.key == ui.historyCharacter then name = c.name end
+        end
+        table.insert(list, { label = name, clear = function() ui.historyCharacter = nil end })
+    end
+    if view.item then
+        table.insert(list, { label = view.item, clear = function() view.item = nil end })
+    end
+    return list
+end
+
+addon:RegisterView("history", { create = Create, refresh = Refresh, reset = Reset, filters = Filters, ownLoading = true })
 
 _G.Goldsmith = addon

@@ -645,11 +645,15 @@ local function CreatePage(parent)
         -- Tiles
         local t = page.tiles
         local stale = d.priceAge and d.priceAge >= STALE_PRICE_DAYS
-        t[1]:Set("AH price", d.price and Money(d.price) or "-", d.price and "text" or "dim",
-            d.price and d.priceText or "scan with Auctionator", stale and "warning" or "muted")
+        -- An adjusted price (undercut or shelf listing replaced by the usual
+        -- price) gets a ~ and an orange source line, with the reason in the
+        -- hover
+        t[1]:Set("AH price", d.price and ((d.priceNote and "~" or "") .. Money(d.price)) or "-", d.price and "text" or "dim",
+            d.price and d.priceText or "scan with Auctionator", (stale or d.priceNote) and "warning" or "muted")
         t[1].tooltip = function(tooltip)
             tooltip:AddLine("AH price", 1, 1, 1)
-            if d.priceSource then tooltip:AddDoubleLine("From", d.priceSource, 0.8, 0.8, 0.8, 1, 1, 1) end
+            if d.priceSource then tooltip:AddDoubleLine("From", d.priceText or d.priceSource, 0.8, 0.8, 0.8, 1, 1, 1) end
+            addon:AddPriceNote(tooltip, d.priceNote)
             if stale then tooltip:AddLine("A few days old, so it may be off.", 1, 0.6, 0.2, true) end
         end
 
@@ -1118,6 +1122,17 @@ local function Reset(v)
     v.list:ScrollToTop()
 end
 
-addon:RegisterView("items", { create = Create, refresh = Refresh, reset = Reset, ownLoading = true })
+-- What narrows the list right now, for the window's Filtered marker
+local function Filters(v)
+    local ui, list = GoldsmithDB.ui2, {}
+    if ui.itemsInBags then
+        table.insert(list, { label = "In my bags", clear = function() ui.itemsInBags = nil end })
+    elseif ui.itemsCheap then
+        table.insert(list, { label = "Cheap materials", clear = function() ui.itemsCheap = nil end })
+    end
+    return list
+end
+
+addon:RegisterView("items", { create = Create, refresh = Refresh, reset = Reset, filters = Filters, ownLoading = true })
 
 _G.Goldsmith = addon

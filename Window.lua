@@ -31,6 +31,9 @@ local TABS = {
 
 -- Views: key -> { create = function(parent) -> view, refresh = function(view, state),
 --                 reset = function(view) (optional: back to the home view),
+--                 filters = function(view) (optional: what narrows the tab
+--                 now, a list of { label, clear = function }, for the
+--                 Filtered marker),
 --                 ownLoading = true (optional: the view marks its own parts
 --                 as loading; otherwise the whole screen is covered) }
 -- state = { profession, range, since, setProfession(prof), loading (see
@@ -434,6 +437,29 @@ function addon:CreateWindow()
     settingsButton:SetPoint("RIGHT", -8, 0)
     -- Above the tab bar, which spans the whole row
     settingsButton:SetFrameLevel(tabBar:GetFrameLevel() + 5)
+
+    -- "Filtered: Alchemy +1  x": shown while anything narrows what this tab
+    -- lists (the header's profession, or the tab's own filters, see
+    -- ActiveFilters). A filter set an hour ago otherwise shortens lists with
+    -- no sign of it (design review, 2026-10-09). Click clears them all.
+    local ActiveFilters, UpdateFilterChip -- defined below
+    local filterChip = UI.Button(tabArea, "", 180, 24, function()
+        for _, f in ipairs(ActiveFilters()) do f.clear() end
+        Refresh()
+    end)
+    UI.Style(filterChip, "highlight", "borderGold")
+    filterChip:HookScript("OnLeave", function(self) self:SetBackdropBorderColor(addon:Color("borderGold")) end)
+    filterChip.label:SetTextColor(addon:Color("gold"))
+    filterChip:SetPoint("RIGHT", settingsButton, "LEFT", -8, 0)
+    filterChip:SetFrameLevel(tabBar:GetFrameLevel() + 5)
+    filterChip:Hide()
+    UI.SetTooltip(filterChip, function(tooltip)
+        tooltip:AddLine("Filtered", 1, 1, 1)
+        tooltip:AddLine("This tab isn't showing everything:", 0.8, 0.8, 0.8, true)
+        local r, g, b = addon:Color("gold")
+        for _, f in ipairs(ActiveFilters()) do tooltip:AddLine("  " .. f.label, r, g, b) end
+        addon:ClickHint(tooltip, "Click to clear them", true)
+    end, "ANCHOR_BOTTOM")
     UI.SetTooltip(settingsButton, function(tooltip)
         tooltip:AddLine("Settings", 1, 1, 1)
         tooltip:AddLine("Costs, prices and thresholds, item tooltips, chat messages, which characters count, and Help.", 0.8, 0.8, 0.8, true)
@@ -467,6 +493,31 @@ function addon:CreateWindow()
     ResetView = function(key)
         local screen = created[key]
         if screen and screen.def.reset then screen.def.reset(screen.view) end
+    end
+
+    -- What narrows the current tab: the header's profession (the Queue
+    -- isn't filtered by it), then the tab's own (view.filters). Dates and
+    -- expansions aren't counted: they're always set to something and the
+    -- header shows them.
+    local UNFILTERED_BY_PROFESSION = { queue = true }
+    ActiveFilters = function()
+        local list = {}
+        if ui.profession ~= "All" and not UNFILTERED_BY_PROFESSION[ui.tab] then
+            table.insert(list, { label = ui.profession, clear = function() ui.profession = "All" end })
+        end
+        local screen = created[ui.tab]
+        if screen and screen.def.filters then
+            for _, f in ipairs(screen.def.filters(screen.view)) do table.insert(list, f) end
+        end
+        return list
+    end
+    UpdateFilterChip = function()
+        local filters = ActiveFilters()
+        filterChip:SetShown(#filters > 0)
+        if #filters > 0 then
+            filterChip:SetLabel("Filtered: " .. filters[1].label
+                .. (#filters > 1 and (" +" .. (#filters - 1)) or "") .. "   x")
+        end
     end
 
     -- Parts of the screen still being worked out. A view calls
@@ -509,6 +560,8 @@ function addon:CreateWindow()
         if not valid then ui.tab = "overview" end
 
         professionButton:SetLabel(ProfessionLabel(ui.profession))
+        -- Gold while it narrows what's shown, like the Filtered marker
+        professionButton.label:SetTextColor(addon:Color(ui.profession ~= "All" and "gold" or "text"))
         rangeButton:SetLabel(addon:GetDateRange(ui.range).label)
         expansionButton:SetLabel(addon:ExpansionFilterLabel())
         local text, color = PriceSourceText()
@@ -523,6 +576,8 @@ function addon:CreateWindow()
         end
         local screen = GetScreen(ui.tab)
         screen.frame:Show()
+
+        UpdateFilterChip()
         -- Worked out over as many frames as it takes (addon:RunWork); a
         -- newer refresh stops this one
         local previous = loading
@@ -546,6 +601,9 @@ function addon:CreateWindow()
             this:ShowAll()
         end, function(work)
             this:HideAll()
+            -- A link from another screen can set a tab's filter during its
+            -- refresh (Items' Cheap materials)
+            UpdateFilterChip()
             if loading == this then loading = nil end
             -- /gsm perf waits for this to time a tab
             if addon.OnTabRefreshed then addon.OnTabRefreshed(tab, work) end

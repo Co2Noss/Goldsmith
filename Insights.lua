@@ -1459,7 +1459,7 @@ function addon:GetItemDetails(name, itemID)
     end
 
     if itemID then
-        d.price, d.priceSource, d.priceAge = addon:GetMarketPriceInfo(itemID)
+        d.price, d.priceSource, d.priceAge, d.priceNote = addon:GetMarketPriceInfo(itemID)
         d.priceText = d.price and addon:PriceAgeText(itemID)
         d.insight, d.historyDays = addon:GetPriceInsight(itemID)
         d.history, d.bandLow, d.bandHigh = PriceSeries(itemID, PRICE_DAYS)
