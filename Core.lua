@@ -452,36 +452,13 @@ StaticPopupDialogs["GOLDSMITH_RESET"] = {
     preferredIndex = 3,
 }
 
--- Accepts a shift-clicked item link or a typed name. Strips the brackets,
--- colour codes and the crafting-quality icon that item links carry.
-local function ParseItemName(text)
-    local name = text:match("%[(.-)%]") or text
-    name = name:gsub("|A.-|a", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-    return strtrim(name)
-end
-
-local function ListProducts()
-    local names = {}
-    for name in pairs(GoldsmithDB.products) do
-        table.insert(names, name)
-    end
-    table.sort(names)
-    if #names == 0 then
-        Print("No crafted items tracked yet. Use /gsm add [item].")
-        return
-    end
-    Print("Tracked crafted items:")
-    for _, name in ipairs(names) do
-        print("  " .. name)
-    end
-end
-
+-- /gsm add, remove and list (v1's way to track an item) were removed
+-- (trimming, user 2026-10-10): recipes are learned from your professions,
+-- and History's "Assign to profession" fixes the rest. Items they tracked
+-- stay in GoldsmithDB.products.
 local function PrintHelp()
     Print("Commands:")
     print("  /gsm - show or hide the window")
-    print("  /gsm add [item] - track a crafted item (shift-click it or type its name)")
-    print("  /gsm remove [item] - stop tracking a crafted item")
-    print("  /gsm list - show tracked crafted items")
     print("  /gsm recipes - show saved recipes and their material cost")
     print("  /gsm milling - show your milling yields and pigment costs")
     print("  /gsm chars - list your characters, professions and concentration")
@@ -489,10 +466,10 @@ local function PrintHelp()
     print("  /gsm setup - show the getting started checklist again")
     print("  /gsm tour - a short tour of the window")
     print("  /gsm cooldowns - craft cooldowns on every character")
-    print("  /gsm perf - time each tab and show memory use (freezes the game briefly)")
+    print("  /gsm perf - time each tab and show memory use")
     print("  /gsm report - copy a bug report (versions, settings and recent errors) for GitHub")
     print("  /gsm reset - delete all transactions")
-    print("  Right-click an entry on the History tab to delete it.")
+    print("  Right-click an entry on the History tab to fix or delete it.")
 end
 
 SLASH_GOLDSMITH1 = "/goldsmith"
@@ -503,22 +480,6 @@ SlashCmdList["GOLDSMITH"] = function(msg)
 
     if cmd == "" then
         addon:ToggleWindow()
-    elseif cmd == "add" and rest ~= "" then
-        local name = ParseItemName(rest)
-        GoldsmithDB.products[name] = true
-        addon:ReassignProfessions()
-        Print("Now tracking %s as an Inscription item.", name)
-    elseif cmd == "remove" and rest ~= "" then
-        local name = ParseItemName(rest)
-        if GoldsmithDB.products[name] then
-            GoldsmithDB.products[name] = nil
-            addon:ReassignProfessions()
-            Print("Stopped tracking %s.", name)
-        else
-            Print("%s isn't in your tracked items. See /gsm list.", name)
-        end
-    elseif cmd == "list" then
-        ListProducts()
     elseif cmd == "recipes" then
         addon:ListRecipes()
     elseif cmd == "milling" then

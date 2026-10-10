@@ -12,8 +12,8 @@ local UI = addon.UI
 --   keepDays    - days of transactions and daily gold kept; 0 = forever
 --                 (addon:TrimHistory, Data.lua)
 --   tooltips   - Goldsmith lines in item tooltips: "full", "short" or "off"
---   chat        - chat messages: "all", "money" (sales, purchases,
---                 deposits) or "off"
+--   chat        - chat messages: "all" or "off" (an old "money" counts
+--                 as "all")
 --   excluded    - { [charKey] = true } for characters left out of stock,
 --                 concentration and the Overview
 --   showMinimap - the minimap button (Minimap.lua)
@@ -355,9 +355,11 @@ end
 
 -- Chat messages Goldsmith prints by itself (not answers to /gsm commands).
 -- kind is "money" (a sale, purchase or deposit) or "info" (anything else).
+-- Everything or off: the "Sales and purchases" level was dropped (user,
+-- 2026-10-10: History shows all of that; chat is for troubleshooting), so
+-- a saved "money" counts as everything.
 function addon:Notify(kind, msg, ...)
-    local chat = addon:Setting("chat")
-    if chat == "off" or (chat == "money" and kind ~= "money") then return end
+    if addon:Setting("chat") == "off" then return end
     print("|cFF00FF00[Goldsmith]|r " .. string.format(msg, ...))
 end
 
@@ -412,7 +414,6 @@ local CHOICES = {
     },
     chat = {
         { value = "all", label = "Everything (recommended)" },
-        { value = "money", label = "Sales and purchases" },
         { value = "off", label = "Off" },
     },
 }
@@ -481,8 +482,7 @@ local HELP = {
     },
     chat = {
         "Chat messages",
-        "Everything: each sale, purchase and AH deposit, saved recipes and milling results.",
-        "Sales and purchases: only messages about money (sales with their profit, purchases, deposits).",
+        "Everything: each sale, purchase and AH deposit, saved recipes and milling results. Handy for checking what Goldsmith records.",
         "Off: none. Everything is still recorded; see the History tab. Answers to /gsm commands always show.",
     },
     characters = {

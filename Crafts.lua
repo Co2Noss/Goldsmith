@@ -2655,6 +2655,8 @@ local function CraftsShow()
     if ui.craftsShow == "profitable" or (not ui.craftsShow and ui.profitableOnly) then
         ui.craftsShow, ui.profitableOnly = "all", nil
     end
+    -- Gear only was dropped too: back to all items
+    if ui.craftsGear == "only" then ui.craftsGear = nil end
     return ui.craftsShow or "recommended"
 end
 
@@ -2686,11 +2688,12 @@ local function Create(parent)
             end)
         end
         -- Gear (armor, weapons, profession tools): often clutter, so it can
-        -- be hidden, or shown on its own (ui.craftsGear = nil / "hide" /
-        -- "only")
+        -- be hidden (ui.craftsGear = nil / "hide"). Gear only was dropped
+        -- (user, 2026-10-10: high-end gear money is soulbound, made through
+        -- crafting orders for the tip, not sold on the AH)
         root:CreateDivider()
         root:CreateTitle("Gear")
-        for _, choice in ipairs({ { nil, "All items" }, { "hide", "Hide gear" }, { "only", "Gear only" } }) do
+        for _, choice in ipairs({ { nil, "All items" }, { "hide", "Hide gear" } }) do
             root:CreateRadio(choice[2], function() return ui.craftsGear == choice[1] end, function()
                 ui.craftsGear = choice[1]
                 addon.RefreshWindow()
@@ -2904,7 +2907,7 @@ local function Refresh(v, state)
     local concOn = ui.craftsConcentration == true
     v.concSwitch:SetOn(concOn)
     v.show:SetLabel("Show: " .. ShowLabel(CraftsShow())
-        .. (ui.craftsGear == "hide" and ", no gear" or ui.craftsGear == "only" and ", gear only" or ""))
+        .. (ui.craftsGear == "hide" and ", no gear" or ""))
     v.onlyMine:SetChecked(ui.craftsOnlyMine == true)
 
     -- Following a link from the Overview shows just those crafts, whatever
@@ -2975,12 +2978,11 @@ local function Refresh(v, state)
         end
         mixed = shown > 1
     end
-    -- Gear filter (Show menu): salvage is never gear
-    if ui.craftsGear and not focus then
-        local only, kept = ui.craftsGear == "only", {}
+    -- Hide gear (Show menu): salvage is never gear
+    if ui.craftsGear == "hide" and not focus then
+        local kept = {}
         for _, item in ipairs(items) do
-            local gear = not item.salvage and addon:IsGear(item.itemID)
-            if (only and gear) or (not only and not gear) then table.insert(kept, item) end
+            if item.salvage or not addon:IsGear(item.itemID) then table.insert(kept, item) end
         end
         items = kept
     end
@@ -3065,8 +3067,6 @@ local function Filters(v)
     end
     if ui.craftsGear == "hide" then
         table.insert(list, { label = "No gear", clear = function() ui.craftsGear = nil end })
-    elseif ui.craftsGear == "only" then
-        table.insert(list, { label = "Gear only", clear = function() ui.craftsGear = nil end })
     end
     return list
 end
