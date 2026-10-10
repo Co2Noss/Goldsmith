@@ -1994,6 +1994,33 @@ function addon:GetUnitCostBasis(itemName, units)
     end
 end
 
+-- The user's 3 silver Thalassian Missive of the Harmonious crafts of
+-- 2026-10-10 15:04 were saved with their materials valued by name (2
+-- silver Munsell Ink at 37.50g each, the average with gold, instead of
+-- 11.46g). Worked back from each lot's cost, with silver Munsell and
+-- Sienna Ink at what they cost (11.46g, 20.16g): 63.68g, 52.22g and 26.11g
+-- x2. Runs once (harmoniousLotsRepaired); only those lots, matched by time
+-- and the wrong cost. Crafts saved since keep what they used (lot.used).
+local HARMONIOUS_FIX = {
+    [1791669855] = { was = 768121, now = 522200 },
+    [1791669858] = { was = 384061, now = 261100 },
+    [1791669861] = { was = 1110284, now = 636800 },
+}
+function addon:RepairHarmoniousLots()
+    if GoldsmithDB.harmoniousLotsRepaired then return 0 end
+    local changed = 0
+    for _, lot in ipairs(GoldsmithDB.craftLots and GoldsmithDB.craftLots[245787] or {}) do
+        local fix = HARMONIOUS_FIX[lot.time]
+        if fix and not lot.used and math.abs(lot.unitCost - fix.was) < 100 then
+            lot.unitCost = fix.now
+            changed = changed + 1
+        end
+    end
+    if changed > 0 then craftLotsVersion = craftLotsVersion + 1 end
+    GoldsmithDB.harmoniousLotsRepaired = true
+    return changed
+end
+
 -- Sales saved before that fix with a recipe estimate though you had bought
 -- the item: their cost becomes what you paid, from the newest purchases
 -- before the sale that cover it. Runs once (estimatedSalesRepaired).
