@@ -150,8 +150,12 @@ GetOptions = function(itemID, name, depth, memo, visiting)
     if hasTiers then
         local row, _, crafterKey = addon:CraftedTierRow(itemID, name)
         if row then
-            options.craft = { method = "Craft", unit = row.cost, recipe = recipe, tierRow = row,
-                crafterKey = crafterKey, verb = row.concentrate and "Craft + conc" or nil }
+            -- unit is the gold it costs; compareUnit adds its concentration
+            -- at CONC_POINT_COST, for choosing between crafting and buying
+            local concCost = addon:ConcentrationPerItem(row) * addon.CONC_POINT_COST
+            options.craft = { method = "Craft", unit = row.cost, compareUnit = row.cost + concCost,
+                recipe = recipe, tierRow = row, crafterKey = crafterKey,
+                verb = row.concentrate and "Craft + conc" or nil }
         end
         recipe = nil
     end
@@ -211,11 +215,14 @@ GetOptions = function(itemID, name, depth, memo, visiting)
 
     -- Salvaging is work: it has to beat the rest by SALVAGE_MARGIN to be
     -- the cheapest way, not by a few silver
+    -- Crafting with concentration compares with its concentration charged
+    -- (compareUnit); salvage with its margin
+    local cheapestUnit
     for _, key in ipairs({ "buy", "vendor", "craft", "mill" }) do
         local option = options[key]
-        local unit = option and (key == "mill" and option.unit * (1 + SALVAGE_MARGIN) or option.unit)
-        if option and (not options.cheapest or unit < options.cheapest.unit) then
-            options.cheapest = option
+        local unit = option and (key == "mill" and option.unit * (1 + SALVAGE_MARGIN) or option.compareUnit or option.unit)
+        if option and (not cheapestUnit or unit < cheapestUnit) then
+            options.cheapest, cheapestUnit = option, unit
         end
     end
 
@@ -294,6 +301,84 @@ end
 -- gold (top-level silver rows only): { itemID, units } spare gold of the
 -- same material you hold, used for what silver you're short of when
 -- MayUseHeldGold allows (node.gold = how many), else node.goldKept.
+-- The key of the character whose stats are in use (BuildPlan runs with the
+-- plan's crafter, see WithCharacter)
+local function StatsKey()
+    local char = addon:StatsChar()
+    for key, c in pairs(GoldsmithDB.characters) do
+        if c == char then return key end
+    end
+    return addon.charKey
+end
+
+-- Concentration a character has now for a profession, less what this plan
+-- has already given out (ctx.conc). Unknown (never read) counts as no limit.
+local function ConcAvailable(ctx, key, profession)
+    local id = key .. "|" .. tostring(profession)
+    if ctx.conc[id] == nil then
+        local current
+        if key == addon.charKey then current = addon:GetConcentration(profession) end
+        if not current then current = addon:GetCharacterConcentration(key, profession) end
+        ctx.conc[id] = current or math.huge
+    end
+    return ctx.conc[id], id
+end
+
+-- How many crafts fit in `available` concentration: the first needs its
+-- full cost, the rest the expected cost after ingenuity refunds
+local function CraftsThatFit(available, full, expected)
+    if available == math.huge then return math.huge end
+    if not full or available < full then return 0 end
+    return math.floor((available - full) / math.max(expected, 1)) + 1
+end
+
+-- A material crafted with concentration: plan only what the crafter's
+-- concentration covers now, and buy the rest (user, 2026-10-10: "a to do
+-- means do it now"; ~1,600 points of gold vials can't be made today).
+-- Changes node.best to a split ("Craft 1, buy 3") or to buying, and sets
+-- node.craftItems (what's crafted) and node.concCrafts (crafts with
+-- concentration). node.concShort when there's no other way to get it.
+local function LimitByConcentration(node, ctx, outputQty)
+    local best = node.best
+    local row = best and best.method == "Craft" and best.tierRow
+    if not (row and row.concentrate and row.concentration and row.concentration > 0) or node.toGet <= 0 then return end
+    local key = best.crafterKey or StatsKey()
+    local available, id = ConcAvailable(ctx, key, best.recipe.profession)
+    local sure = SurePerCraft(best.recipe, outputQty)
+    local wanted = WholeCrafts(node.toGet, sure)
+    local full = row.scenario and row.scenario.concentration or row.concentration
+    local fit = CraftsThatFit(available, full, row.concentration)
+    local crafts = math.min(wanted, fit)
+    if available ~= math.huge then ctx.conc[id] = available - crafts * row.concentration end
+    node.concCrafts = crafts
+    if crafts >= wanted then return end
+    local other = node.options.buy or node.options.vendor
+    local c = GoldsmithDB.characters[key]
+    -- perCraft: what starting a craft needs (its full cost; ingenuity gives
+    -- some back afterwards, so 409 can be short of a "406" craft)
+    node.concNote = { name = c and c.name or key, available = available ~= math.huge and math.floor(available) or nil,
+        perCraft = math.floor(full + 0.5) }
+    if not other then
+        -- Nothing else gets it: craft them all, and say concentration is short
+        node.concCrafts = wanted
+        node.concShort = true
+        return
+    end
+    local craftItems = math.min(crafts * sure, node.toGet)
+    if craftItems <= 0 then
+        node.best = other
+        return
+    end
+    local buyItems = node.toGet - craftItems
+    node.craftItems = craftItems
+    node.best = setmetatable({
+        unit = (craftItems * best.unit + buyItems * other.unit) / node.toGet,
+        verb = string.format("Craft %d, %s %d", math.floor(craftItems + 0.5),
+            other.method == "Vendor" and "vendor" or "buy", math.ceil(buyItems - 0.0001)),
+        split = { craftItems = craftItems, buyItems = buyItems, other = other },
+    }, { __index = best })
+end
+
 local function BuildNode(itemID, name, need, depth, ctx, quality, gold)
     local options = GetOptions(itemID, name, depth, ctx.memo, {})
     -- In a queue, what earlier crafts already count on isn't yours to use again
@@ -337,10 +422,13 @@ local function BuildNode(itemID, name, need, depth, ctx, quality, gold)
         end
     end
 
-    local best = options.best
+    if options.best and options.best.method == "Craft" and options.best.tierRow then
+        LimitByConcentration(node, ctx, (GetCraftNumbers(options.best.recipe)))
+    end
+    local best = node.best
     if best and best.method == "Craft" and node.toGet > 0 then
         local outputQty, slots = GetCraftNumbers(best.recipe)
-        local crafts = WholeCrafts(node.toGet, SurePerCraft(best.recipe, outputQty))
+        local crafts = WholeCrafts(node.craftItems or node.toGet, SurePerCraft(best.recipe, outputQty))
         for _, s in ipairs(slots) do
             if best.tierRow then
                 -- A tier item: its materials in the qualities its tier row uses
@@ -375,6 +463,14 @@ end
 local function CollectPurchases(node, ah, vendor)
     if node.toGet <= 0 then return end
     local best = node.best
+    -- Partly crafted (concentration ran out): the rest is bought
+    if best and best.split then
+        local other = best.split.other
+        local map = other.method == "Vendor" and vendor or ah
+        map[node.itemID] = map[node.itemID] or { name = node.name, quantity = 0, unit = other.unit,
+                                                 qualityTier = node.qualityTier, tierCount = node.tierCount }
+        map[node.itemID].quantity = map[node.itemID].quantity + best.split.buyItems
+    end
     if best and best.method == "Buy" then
         ah[node.itemID] = ah[node.itemID] or { name = node.name, quantity = 0, unit = best.unit,
                                                qualityTier = node.qualityTier, tierCount = node.tierCount }
@@ -414,9 +510,15 @@ end
 -- earlier plans already use; this plan uses what's left and adds its own.
 function addon:BuildPlan(recipe, quantity, useOnHand, tier, pool)
     GoldsmithDB.ui.methodOverrides = GoldsmithDB.ui.methodOverrides or {}
-    local ctx = { memo = {}, useOnHand = useOnHand, pool = pool }
+    local ctx = { memo = {}, useOnHand = useOnHand, pool = pool, conc = {} }
     local outputQty, slots = GetCraftNumbers(recipe)
     local crafts = WholeCrafts(quantity, SurePerCraft(recipe, outputQty))
+    -- The craft's own concentration comes first from its crafter's
+    -- (materials of the same profession on the same character share it)
+    if tier and tier.concentrate and tier.concentration then
+        local available, id = ConcAvailable(ctx, StatsKey(), recipe.profession)
+        if available ~= math.huge then ctx.conc[id] = available - tier.concentration * crafts end
+    end
 
     -- expectedOutput: what `crafts` whole crafts should make on average
     local plan = { recipe = recipe, quantity = quantity, crafts = crafts, nodes = {}, cost = 0, complete = true,

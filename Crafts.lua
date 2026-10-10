@@ -570,7 +570,15 @@ local function FillPlanRow(row, node)
         if value then
             table.insert(parts, addon:Colorize(Money(value) .. "/conc", addon:ConcentrationValueColor(value)))
         end
+        if node.concShort and node.concNote then
+            table.insert(parts, addon:Colorize(string.format("a craft needs %d concentration", node.concNote.perCraft), "warning"))
+        end
         if #parts > 0 then extra = addon:Colorize("  · ", "dim") .. addon:Colorize(table.concat(parts, ", "), "gold") end
+    elseif node.concNote and node.toGet > 0 then
+        -- Would be crafted, but its crafter is out of concentration now
+        extra = addon:Colorize("  · ", "dim") .. addon:Colorize(string.format("%s has %s concentration, a craft needs %d",
+            node.concNote.name, node.concNote.available and tostring(node.concNote.available) or "too little",
+            node.concNote.perCraft), "warning")
     end
     cells.item:SetText(indent .. quality .. node.name .. extra)
     cells.need:SetText(Whole(node.need))
@@ -1929,7 +1937,10 @@ local function CreatePlanScreen(parent)
             if row and row.concentrate and (node.toGet or 0) > 0 and (row.outputPerCraft or 0) > 0 then
                 local key = best.crafterKey or p.charKey
                 if not subConc[key] then table.insert(subOrder, key) end
-                subConc[key] = (subConc[key] or 0) + math.ceil(node.toGet / row.outputPerCraft) * row.concentration
+                -- The crafts the planner gave concentration to (it plans no
+                -- more than the crafter has now; Planner.lua)
+                local crafts = node.concCrafts or math.ceil(node.toGet / row.outputPerCraft)
+                subConc[key] = (subConc[key] or 0) + crafts * row.concentration
             end
         end
         local concParts = {}
@@ -2668,9 +2679,9 @@ local function Create(parent)
     list:SetAllPoints()
     view.listScreen = list
 
-    -- Show: all crafts, profitable ones, or recommended ones (profitable and
-    -- they sell: what Do this next would suggest). ui.craftsShow; the old
-    -- Profitable only checkbox (ui.profitableOnly) carries over.
+    -- Show: all crafts, recommended ones (profitable and they sell: what Do
+    -- this next would suggest), or recipes not learned yet. ui.craftsShow
+    -- (see CraftsShow).
     view.show = UI.Dropdown(list, 220, function(root)
         root:CreateTitle("Show")
         for _, choice in ipairs(SHOW_CHOICES) do

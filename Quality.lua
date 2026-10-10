@@ -456,9 +456,23 @@ CraftedTierRowUncached = function(itemID, name)
     if row and row.cost and not row.partial then return row, recipe, key end
 end
 
+-- Concentration isn't free: when a material's craft spends it, it's
+-- charged at this much gold a point when deciding whether crafting beats
+-- buying (the same as the least a concentration plan accepts). A gold
+-- Sunglass Vial at 47g of materials and ~373 concentration counts as about
+-- 234g, not 47g (user, 2026-10-10: factor g/conc into the calculation).
+addon.CONC_POINT_COST = 0.5 * 10000
+
+-- Concentration a tier row spends per item made (0 without concentration)
+function addon:ConcentrationPerItem(row)
+    if not (row and row.concentrate and row.concentration) then return 0 end
+    return row.concentration / math.max(row.outputPerCraft or 1, 1)
+end
+
+-- What making a material quality costs, its concentration charged
 local function CraftedTierCost(itemID, name)
     local row = addon:CraftedTierRow(itemID, name)
-    return row and row.cost
+    return row and (row.cost + addon:ConcentrationPerItem(row) * addon.CONC_POINT_COST)
 end
 
 -- The cheaper of buying a material quality and making it, else what you
