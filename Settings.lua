@@ -353,6 +353,36 @@ function addon:ClearSnoozed()
     if addon.RefreshWindow then addon.RefreshWindow() end
 end
 
+-- "N hidden" (Overview and Characters): a button listing what's hidden,
+-- when each comes back, to bring one or all back now. Hidden while
+-- nothing is. Call button:Update() on refresh.
+function addon:HiddenSuggestionsButton(parent)
+    local button = UI.Button(parent, "", 80, 22, function(self)
+        if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+        GameTooltip:Hide()
+        MenuUtil.CreateContextMenu(self, function(_, root)
+            root:CreateTitle("Hidden for a day (Not this)")
+            for _, item in ipairs(addon:GetSnoozedItems()) do
+                root:CreateButton(string.format("%s  (back %s)", item.name, date("%a %H:%M", item.untilTime)),
+                    function() addon:SetSnoozed(item.itemID, item.name, false) end)
+            end
+            root:CreateDivider()
+            root:CreateButton("Bring them all back", function() addon:ClearSnoozed() end)
+        end)
+    end)
+    UI.SetTooltip(button, function(tooltip)
+        tooltip:AddLine("Hidden suggestions", 1, 1, 1)
+        tooltip:AddLine("Ones you hid with Not this. Click to bring one back now.", 0.8, 0.8, 0.8, true)
+    end, "ANCHOR_BOTTOM")
+    function button:Update(hide)
+        local count = #addon:GetSnoozedItems()
+        self:SetShown(not hide and count > 0)
+        self:SetLabel(string.format("%d hidden", count))
+    end
+    button:Hide()
+    return button
+end
+
 -- Chat messages Goldsmith prints by itself (not answers to /gsm commands).
 -- kind is "money" (a sale, purchase or deposit) or "info" (anything else).
 -- Everything or off: the "Sales and purchases" level was dropped (user,
@@ -789,7 +819,7 @@ local HELP_SECTIONS = {
     { "Hovers and clicks",
       "Hovers show the numbers. Hold Ctrl over one to see what each number means, how it's worked out and what clicking does; let go and they're gone. The line along the bottom of the window says what clicking, right-clicking and shift-clicking do on the screen you're on. A gold Filtered button by Settings means something is hiding part of the list: click it to see everything." },
     { "When a suggestion isn't for you",
-      "The x on a Do this next card hides one of its suggestions for a day; it comes back after that if it's still a good bet. To hide something for good, right-click it on Crafts and pick Ignore. Deleted something in History by mistake? Click Undo at the bottom right." },
+      "The x on a Do this next card, or right-clicking a to-do on Characters, hides a suggestion for a day; it comes back after that if it's still a good bet, and the \"hidden\" button brings it back sooner. To hide something for good, right-click it on Crafts and pick Ignore; to undo that, untick it in Settings > Ignored items, or tick Show ignored in the Crafts Show menu and right-click it. Deleted something in History by mistake? It stays greyed in the list until you leave History: click it to undo." },
     { "Item tooltips",
       "Show your cost, profit and break-even price. Hold Shift for each material's cost. Settings > Item tooltips makes them shorter or turns them off." },
     { "Recommended: Auctionator",

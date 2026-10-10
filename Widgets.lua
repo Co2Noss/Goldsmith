@@ -237,8 +237,17 @@ end)
 -- Hover tooltip. fill(tooltip, frame) adds the lines; nothing shows if it
 -- adds none. Hooked, so a widget's own hover effects (e.g. a gold border)
 -- keep working; call it once per frame.
+-- A dropdown menu (MenuUtil) is open: hovers wait until it closes, so a
+-- dropdown's own hover doesn't land on top of its menu (user, 2026-10-10)
+local function MenuOpen()
+    if not (Menu and Menu.GetManager) then return false end
+    local ok, menu = pcall(function() return Menu.GetManager():GetOpenMenu() end)
+    return ok and menu ~= nil
+end
+
 function UI.SetTooltip(frame, fill, anchor)
     local function Draw(self)
+        if MenuOpen() then return end
         GameTooltip:SetOwner(self, anchor or "ANCHOR_RIGHT")
         UI.BeginTooltip(self, function() Draw(self) end)
         fill(GameTooltip, self)
@@ -293,6 +302,8 @@ end
 function UI.Dropdown(parent, width, build)
     local button = UI.Button(parent, "", width, 24, function(self)
         if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+        -- The button's hover would sit on top of the menu
+        GameTooltip:Hide()
         MenuUtil.CreateContextMenu(self, function(_, root) build(root) end)
     end)
     button.label:SetJustifyH("LEFT")

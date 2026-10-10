@@ -37,10 +37,12 @@ local function ShortDay(day)
     return date("%b %d", time({ year = tonumber(y), month = tonumber(m), day = tonumber(d), hour = 12 }))
 end
 
+-- "full in 40m", "full in 6h", "full in 2.4 days"
 local function HoursText(minutes)
     if not minutes then return "full" end
     if minutes < 60 then return string.format("full in %dm", math.ceil(minutes)) end
-    return string.format("full in %.1fh", minutes / 60)
+    if minutes < 48 * 60 then return string.format("full in %dh", math.floor(minutes / 60 + 0.5)) end
+    return string.format("full in %.1f days", minutes / 1440)
 end
 
 -- Character name, only when it isn't you (you're the default)
@@ -158,8 +160,14 @@ local function FillConcentrationTile(tile, conc)
                 string.format("%s - %s%s", row.name, addon:ProfessionIconText(row.profession), row.profession),
                 string.format("%d / %d, %s", row.current, row.max, HoursText(row.minutesToFull)),
                 0.9, 0.9, 0.9, 0.91, 0.76, 0.35)
+            -- What it's best spent on, rather than a bare "worth" (user,
+            -- 2026-10-10: not sold on the formatting)
             if row.gain > 0 then
-                tooltip:AddDoubleLine("    worth", Signed(row.gain) .. " extra", 0.6, 0.6, 0.6, 0.37, 0.81, 0.48)
+                local first = row.plan and row.plan[1]
+                local what = first and string.format("    %dx %s%s", first.crafts,
+                    ItemText(first.row.itemID, first.recipe.outputName, first.row.tier, first.tierCount),
+                    #row.plan > 1 and string.format(" +%d more", #row.plan - 1) or "") or "    best use"
+                tooltip:AddDoubleLine(what, Signed(row.gain) .. " extra", 0.6, 0.6, 0.6, 0.37, 0.81, 0.48)
             end
             for _, c in ipairs(row.capped or {}) do
                 tooltip:AddDoubleLine("    held back: " .. ItemText(c.row.itemID, c.recipe.outputName, c.row.tier, c.tierCount),
@@ -827,23 +835,8 @@ local function Create(parent)
     end, "ANCHOR_BOTTOM")
     -- "2 hidden": suggestions hidden with Not this, so they can always be
     -- brought back, even once their card is gone
-    view.hidden = UI.Button(actions, "", 80, 22, function(self)
-        if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
-        MenuUtil.CreateContextMenu(self, function(_, root)
-            root:CreateTitle("Hidden for a day (Not this)")
-            for _, item in ipairs(addon:GetSnoozedItems()) do
-                root:CreateButton(string.format("%s  (back %s)", item.name, date("%a %H:%M", item.untilTime)),
-                    function() addon:SetSnoozed(item.itemID, item.name, false) end)
-            end
-            root:CreateDivider()
-            root:CreateButton("Bring them all back", function() addon:ClearSnoozed() end)
-        end)
-    end)
+    view.hidden = addon:HiddenSuggestionsButton(actions)
     view.hidden:SetPoint("RIGHT", view.byCharacter, "LEFT", -8, 0)
-    UI.SetTooltip(view.hidden, function(tooltip)
-        tooltip:AddLine("Hidden suggestions", 1, 1, 1)
-        tooltip:AddLine("Ones you hid with Not this (the x on a card). Click to bring one back now.", 0.8, 0.8, 0.8, true)
-    end, "ANCHOR_BOTTOM")
     view.actionRows = {}
     for i = 1, ACTION_COUNT do
         view.actionRows[i] = CreateActionRow(actions, i)
@@ -948,9 +941,7 @@ local function Refresh(view, state)
     view.setup:SetShown(inSetup)
     view.setup.close:SetShown(inSetup)
     view.byCharacter:SetShown(not inSetup)
-    local hiddenCount = #addon:GetSnoozedItems()
-    view.hidden:SetShown(not inSetup and hiddenCount > 0)
-    view.hidden:SetLabel(string.format("%d hidden", hiddenCount))
+    view.hidden:Update(inSetup)
     view.actionsTitle:SetText(not inSetup and "Do this next"
         or allDone and "Getting started: all done, close this with X" or "Getting started")
 
@@ -973,8 +964,13 @@ local function Refresh(view, state)
     local followed = addon:GetFollowedSummary(7)
     view.followedData = followed
     view.followed:SetShown(not inSetup and followed.crafted > 0)
-    view.followed.text:SetText(string.format("followed: %s", addon:Colorize(Signed(followed.profit),
-        addon:MoneyColor(followed.profit))))
+    -- Nothing sold yet: say so, rather than "+0.00g" (user, 2026-10-10)
+    if followed.sold == 0 then
+        view.followed.text:SetText(string.format("followed: %d made, 0 sold", math.floor(followed.crafted + 0.5)))
+    else
+        view.followed.text:SetText(string.format("followed: %s", addon:Colorize(Signed(followed.profit),
+            addon:MoneyColor(followed.profit))))
+    end
     -- Order: concentration, cooldowns, best crafts, salvage, cheap
     -- materials; the last ones are left out when they don't fit
     local salvageAction = SalvageAction(prof)

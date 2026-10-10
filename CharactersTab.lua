@@ -134,7 +134,8 @@ local function CreateTodoLine(card, i)
     line:SetScript("OnClick", function(self, button)
         if button == "RightButton" then
             -- A to-do's own menu: Not this (hide it for a day, as on the
-            -- Overview; user, 2026-10-10), or the character's options
+            -- Overview). Only that: Exclude is the card's checkbox (user,
+            -- 2026-10-10)
             local item = self.item
             if not (item and MenuUtil and MenuUtil.CreateContextMenu) then
                 ShowCardMenu(card)
@@ -145,8 +146,6 @@ local function CreateTodoLine(card, i)
                 root:CreateButton("Not this: hide it for a day", function()
                     addon:SetSnoozed(item.recipe.outputItemID, item.recipe.outputName, true)
                 end)
-                root:CreateDivider()
-                root:CreateButton("Character options...", function() ShowCardMenu(card) end)
             end)
         elseif self.item then
             local item = self.item
@@ -392,6 +391,9 @@ local function Create(parent)
     view.note = UI.Text(parent, "label", "dim")
     view.note:SetPoint("LEFT", title, "RIGHT", 10, -1)
     view.note:SetText("most profit first")
+    -- To-dos hidden with Not this (right-click one), to bring back
+    view.hidden = addon:HiddenSuggestionsButton(parent)
+    view.hidden:SetPoint("LEFT", view.note, "RIGHT", 14, 1)
     view.page = UI.Text(parent, "label", "dim", "RIGHT")
     view.page:SetPoint("TOPRIGHT", 0, -6)
 
@@ -423,6 +425,7 @@ local function Refresh(view, state)
         end
     end
     addon:MarkSuggested(names)
+    view.hidden:Update()
     local cooldowns = {}
     for _, cd in ipairs(addon:GetCooldowns(state.profession, true)) do
         cooldowns[cd.charKey] = cooldowns[cd.charKey] or {}

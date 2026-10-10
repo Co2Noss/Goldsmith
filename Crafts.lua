@@ -21,7 +21,9 @@ local AH_CUT = 0.05
 local STALE_PRICE_DAYS = 3
 local TOP_HEIGHT = 26
 local FOOTER_HEIGHT = 44
-local PLAN_SUMMARY_HEIGHT = 158
+-- 172 (was 158): the notes under Cost, Sells for and Profit wrap onto a
+-- second line instead of being cut off (user, 2026-10-10)
+local PLAN_SUMMARY_HEIGHT = 172
 -- The planner's "Why this mix" panel: mixes shown, and its height
 local MIX_SHOWN = 3
 local MIX_HEIGHT = 158
@@ -685,11 +687,28 @@ local function PlanTooltip(tooltip, node)
     Option(o.mill, (o.mill and o.mill.verb or "Mill") .. " it", millDetail)
     if not node.best then Note(tooltip, "  No price found. Scan the AH with Auctionator.", "loss") end
 
-    if o.cheapest and o.buy and o.cheapest ~= o.buy and o.buy.unit > o.cheapest.unit then
+    -- Savings only on what can be made now: crafting held back by its
+    -- crafter's concentration (Planner.lua) saves on those crafts alone, or
+    -- nothing when they're all bought (user, 2026-10-10: "saves 970g" for 4
+    -- vials when only 1 could be made was beside the point)
+    local savedUnits = node.need
+    if node.best and node.best.split then
+        savedUnits = node.best.split.craftItems
+    elseif node.concNote and o.cheapest ~= node.best then
+        savedUnits = 0
+    end
+    if o.cheapest and o.buy and o.cheapest ~= o.buy and o.buy.unit > o.cheapest.unit and savedUnits > 0 then
         tooltip:AddLine(" ")
         Note(tooltip, string.format("%s it instead of buying saves %s here",
-            o.cheapest.method == "Mill" and Gerund(o.cheapest.verb or "Mill") or "Crafting", Money((o.buy.unit - o.cheapest.unit) * node.need)),
+            o.cheapest.method == "Mill" and Gerund(o.cheapest.verb or "Mill") or "Crafting", Money((o.buy.unit - o.cheapest.unit) * savedUnits)),
             "profit")
+    end
+    -- Held back by concentration: say how much of it can be crafted now
+    if node.concNote then
+        local craftable = node.best and node.best.split and node.best.split.craftItems or 0
+        Note(tooltip, string.format("%s has %s concentration, enough to craft %d of %d now (a craft needs %d to start).",
+            node.concNote.name, node.concNote.available and tostring(node.concNote.available) or "too little",
+            math.floor(craftable + 0.5), math.ceil(node.toGet - 0.0001), node.concNote.perCraft), "warning")
     end
     if o.override and o.cheapest and node.best ~= o.cheapest then
         Note(tooltip, string.format("Your choice (%s) costs %s more here", node.best.verb or node.best.method,
@@ -1714,6 +1733,8 @@ local function CreatePlanScreen(parent)
         f.note = UI.Text(summary, "small", "muted")
         f.note:SetPoint("TOPLEFT", f.value, "BOTTOMLEFT", 0, -4)
         f.note:SetWidth(third - 24)
+        f.note:SetWordWrap(true)
+        f.note:SetMaxLines(2)
         return f
     end
     screen.cost, screen.sells, screen.profit = Figure(1), Figure(2), Figure(3)
@@ -2209,6 +2230,8 @@ local function CreateSalvageScreen(parent)
         f.note = UI.Text(summary, "small", "muted")
         f.note:SetPoint("TOPLEFT", f.value, "BOTTOMLEFT", 0, -4)
         f.note:SetWidth(third - 24)
+        f.note:SetWordWrap(true)
+        f.note:SetMaxLines(2)
         return f
     end
     screen.cost, screen.worth, screen.profit = Figure(1, "COST"), Figure(2, "WORTH"), Figure(3, "PROFIT")

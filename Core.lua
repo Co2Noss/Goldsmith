@@ -469,7 +469,6 @@ local function PrintHelp()
     print("  /gsm perf - time each tab and show memory use")
     print("  /gsm report - copy a bug report (versions, settings and recent errors) for GitHub")
     print("  /gsm reset - delete all transactions")
-    print("  Right-click an entry on the History tab to fix or delete it.")
 end
 
 SLASH_GOLDSMITH1 = "/goldsmith"
