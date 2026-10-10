@@ -74,13 +74,15 @@ function addon:CreateLedger(store)
         -- costPartial means some of their material costs were unknown
         -- depositRefund is the deposit returned inside this sale's amount
         -- costSource says where costBasis came from (see GetUnitCostBasis)
-        addRevenue = function(self, prof, item, qty, totalCopper, costBasis, costPartial, depositRefund, costSource)
+        addRevenue = function(self, prof, item, qty, totalCopper, costBasis, costPartial, depositRefund, costSource, itemID)
             version = version + 1
             table.insert(entries, {
                 costBasis = costBasis,
                 costPartial = costPartial,
                 costSource = costSource,
                 depositRefund = depositRefund,
+                -- The exact item (quality), when the sale matched your post
+                itemID = itemID,
                 id = store.nextId,
                 type = "REVENUE",
                 profession = prof,

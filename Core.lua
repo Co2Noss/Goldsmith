@@ -107,12 +107,16 @@ local SALE_TIMEOUT = 15
 local function RecordSale(sale)
     local prof = addon:GetProfessionForItemName(sale.itemName) or "Unassigned"
 
+    -- Which quality it was, from your post at that price (the mail only
+    -- names it), so silver and gold aren't costed as a blend
+    local itemID = sale.bid and sale.count and sale.count > 0
+        and addon:MatchSaleToPost(sale.itemName, sale.count, sale.bid / sale.count) or nil
     -- Snapshot what the items cost you now, so the sale's profit doesn't
     -- shift later as material prices change
-    local unitCost, partial, costSource = addon:GetUnitCostBasis(sale.itemName, sale.count)
+    local unitCost, partial, costSource = addon:GetUnitCostBasis(sale.itemName, sale.count, itemID)
     local costBasis = unitCost and math.floor(unitCost * sale.count + 0.5)
     addon.ledger:addRevenue(prof, sale.itemName, sale.count, sale.net, costBasis, partial, sale.depositRefund,
-        costBasis and costSource)
+        costBasis and costSource, itemID)
     addon:AuctionSold(sale.itemName, sale.count)
 
     if prof == "Unassigned" then
@@ -154,6 +158,8 @@ local function OnTakeMailMoney(index)
         -- The deposit is logged as a cost when posting, so its refund counts as revenue
         net = bid + (deposit or 0) - (consignment or 0),
         depositRefund = deposit or 0,
+        -- What it sold for before the cut, to match it to your post (its quality)
+        bid = bid,
         time = GetTime(),
     })
 end
@@ -219,13 +225,50 @@ local function QueuePost(itemLocation, deposit, quantity)
     })
 end
 
-local function OnPostCommodity(itemLocation, duration, quantity)
+-- What you post, by exact item and price per unit (GoldsmithDB.posts), so a
+-- sale mail, which only names the item, can be matched to its quality by
+-- price: silver and gold of a crafted item sell for very different prices,
+-- and were costed as a blend of both (user, 2026-10-10). Kept 3 days (the
+-- longest an auction runs is 2), at most POSTS_KEPT.
+local POSTS_KEPT, POST_DAYS = 300, 3
+local function RememberPost(itemLocation, quantity, unitPrice)
+    if not (quantity and quantity > 0 and unitPrice and unitPrice > 0) then return end
+    if not C_Item.DoesItemExist(itemLocation) then return end
+    GoldsmithDB.posts = GoldsmithDB.posts or {}
+    local posts = GoldsmithDB.posts
+    table.insert(posts, { name = C_Item.GetItemName(itemLocation), itemID = C_Item.GetItemID(itemLocation),
+        unitPrice = unitPrice, left = quantity, time = time() })
+    local cutoff = time() - POST_DAYS * 86400
+    while posts[1] and (#posts > POSTS_KEPT or posts[1].time < cutoff) do table.remove(posts, 1) end
+end
+
+-- The exact item a sale was most likely of: your post of that name, still
+-- on the AH, whose price per unit is closest to the sale's. Takes the sold
+-- units off it. nil when nothing matches (no post seen, or only of
+-- another name).
+function addon:MatchSaleToPost(itemName, count, unitPrice)
+    local best, bestGap
+    for _, post in ipairs(GoldsmithDB.posts or {}) do
+        if post.name == itemName and (post.left or 0) > 0 and unitPrice and unitPrice > 0 then
+            local gap = math.abs(post.unitPrice - unitPrice) / unitPrice
+            if not bestGap or gap < bestGap then best, bestGap = post, gap end
+        end
+    end
+    if not best then return nil end
+    best.left = math.max(best.left - (count or 1), 0)
+    return best.itemID
+end
+
+local function OnPostCommodity(itemLocation, duration, quantity, unitPrice)
     if not C_Item.DoesItemExist(itemLocation) then return end
     local itemID = C_Item.GetItemID(itemLocation)
+    RememberPost(itemLocation, quantity, unitPrice)
     QueuePost(itemLocation, C_AuctionHouse.CalculateCommodityDeposit(itemID, duration, quantity), quantity)
 end
 
-local function OnPostItem(itemLocation, duration, quantity)
+local function OnPostItem(itemLocation, duration, quantity, bid, buyout)
+    local price = buyout or bid
+    RememberPost(itemLocation, quantity, price and quantity and quantity > 0 and price / quantity)
     QueuePost(itemLocation, C_AuctionHouse.CalculateItemDeposit(itemLocation, duration, quantity), quantity)
 end
 

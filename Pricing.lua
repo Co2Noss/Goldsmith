@@ -1970,11 +1970,22 @@ end
 -- reward), "crafted" (your crafts of it), "paid" (what you paid, milled or
 -- gathered) or "estimated" (the recipe at today's prices: you didn't craft
 -- or buy these while Goldsmith was watching).
-function addon:GetUnitCostBasis(itemName, units)
+-- itemID (optional): the exact item, when a sale matched your post
+-- (MatchSaleToPost): its own crafts and purchases only, so silver and gold
+-- of the same item aren't blended (user, 2026-10-10).
+function addon:GetUnitCostBasis(itemName, units, itemID)
     if GoldsmithDB.freeItems and GoldsmithDB.freeItems[itemName] then
         return 0, false, "free"
     end
     -- Items you crafted: what your latest crafts actually cost
+    if itemID and GoldsmithDB.craftLots[itemID] then
+        -- Averaged over all you held before this sale (the ones on the AH
+        -- included), not just the newest craft: selling 1 of 4 Missives
+        -- took only the newest craft's cost
+        local cover = math.max(addon.GetHeld and addon:GetHeld(itemID) or 0, units or 1)
+        local crafted, _, craftedPartial = addon:GetCraftedCost(itemID, cover)
+        if crafted then return crafted, craftedPartial, "crafted" end
+    end
     local crafted, _, craftedPartial = addon:GetCraftedCostByName(itemName, units)
     if crafted then
         return crafted, craftedPartial, "crafted"
@@ -1983,7 +1994,7 @@ function addon:GetUnitCostBasis(itemName, units)
     -- Glass bought at 13.79g were recorded as sold at a cost of 119.86g each
     -- (its recipe's estimate), a 10,000g loss that was really about 200g
     -- (2026-10-10)
-    local own = addon:GetOwnCost(itemName)
+    local own = addon:GetOwnCost(itemName, nil, itemID)
     if own then
         return own, false, "paid"
     end
