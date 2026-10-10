@@ -414,6 +414,8 @@ function addon:Initialize()
     addon:InitializeCooldowns()
 
     addon.ledger = addon:CreateLedger(GoldsmithDB)
+    -- Sales costed at a recipe estimate though you'd bought the item (once)
+    addon:RepairEstimatedSales()
     -- Keep history for (Settings); after login settles, like the other chores
     C_Timer.After(15, function() addon:TrimHistory() end)
     addon:CreateWindow()

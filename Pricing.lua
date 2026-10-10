@@ -1943,9 +1943,9 @@ end
 -- Returns cost per unit and whether it's partial (some material costs
 -- unknown), or nil if there's no cost data at all.
 -- Also returns where the cost came from: "free" (marked as loot or a
--- reward), "crafted" (your crafts of it), "estimated" (the recipe at
--- today's prices: you didn't craft these while Goldsmith was watching) or
--- "paid" (what you paid or milled).
+-- reward), "crafted" (your crafts of it), "paid" (what you paid, milled or
+-- gathered) or "estimated" (the recipe at today's prices: you didn't craft
+-- or buy these while Goldsmith was watching).
 function addon:GetUnitCostBasis(itemName, units)
     if GoldsmithDB.freeItems and GoldsmithDB.freeItems[itemName] then
         return 0, false, "free"
@@ -1955,15 +1955,49 @@ function addon:GetUnitCostBasis(itemName, units)
     if crafted then
         return crafted, craftedPartial, "crafted"
     end
+    -- What you paid before what making it would cost: 100 Crystalline
+    -- Glass bought at 13.79g were recorded as sold at a cost of 119.86g each
+    -- (its recipe's estimate), a 10,000g loss that was really about 200g
+    -- (2026-10-10)
+    local own = addon:GetOwnCost(itemName)
+    if own then
+        return own, false, "paid"
+    end
     local recipe = addon:FindRecipeByOutput(itemName)
     if recipe then
         local cost, missing = addon:GetRecipeCost(recipe)
         return cost, #missing > 0, "estimated"
     end
-    local own = addon:GetOwnCost(itemName)
-    if own then
-        return own, false, "paid"
+end
+
+-- Sales saved before that fix with a recipe estimate though you had bought
+-- the item: their cost becomes what you paid, from the newest purchases
+-- before the sale that cover it. Runs once (estimatedSalesRepaired).
+-- Returns how many sales changed.
+function addon:RepairEstimatedSales()
+    if GoldsmithDB.estimatedSalesRepaired then return 0 end
+    local purchases = addon.ledger:index().purchases
+    local changed = 0
+    for _, e in ipairs(addon.ledger:getAll()) do
+        if e.type == "REVENUE" and e.costSource == "estimated" and e.item and (e.quantity or 0) > 0 then
+            local paid, units = 0, 0
+            local list = purchases[e.item] or {}
+            for i = #list, 1, -1 do
+                local p = list[i]
+                if (p.timestamp or 0) <= e.timestamp and (p.quantity or 0) > 0 then
+                    paid, units = paid + p.totalCopper, units + p.quantity
+                    if units >= e.quantity then break end
+                end
+            end
+            if units > 0 then
+                e.costBasis = math.floor(paid / units * e.quantity + 0.5)
+                e.costSource = "paid"
+                changed = changed + 1
+            end
+        end
     end
+    GoldsmithDB.estimatedSalesRepaired = true
+    return changed
 end
 
 -- Items you got for free (loot, quest and event rewards): selling them
