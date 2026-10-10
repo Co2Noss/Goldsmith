@@ -779,9 +779,10 @@ end
 -- some afterwards, so the points counted are the expected cost.
 -- Returns { { recipe, row, tierCount, crafts, points, gain, profit } }
 -- (most gain first), points used, total extra profit from concentrating,
--- and what passed `accept` but was capped to nothing by its sales (a day's
--- worth less what you hold): { { recipe, row, tierCount, demand, held } },
--- most gold per point first, so the Crafts tab can say why.
+-- and what passed `accept` but was held back: you hold some unsold, or
+-- (TSM only) the region sells under one a day: { { recipe, row,
+-- tierCount, demand, demandSource, held } }, most gold per point first, so
+-- the Crafts tab can say why. Your own sales never cap a plan.
 local MAX_IMPROVEMENTS = 30
 local MAX_CRAFTS_TRIED = 200
 
@@ -810,25 +811,38 @@ function addon:PlanConcentration(profession, budget, accept)
                     local capKey = e.itemID or (recipe.recipeID .. ":" .. e.tier)
                     if e.itemID and addon:IsGear(e.itemID) then capKey = e.itemID .. ":" .. e.tier end
                     if caps[capKey] == nil then
-                        local demand = e.demand or (e.itemID and addon:GetDemand(e.itemID, recipe.outputName))
-                        -- Less what you already hold (bags, banks, AH listings): an
-                        -- item still sitting unsold isn't made again until it sells
+                        local demand, source = e.demand, e.demandSource
+                        if not demand and e.itemID then demand, source = addon:GetDemand(e.itemID, recipe.outputName) end
+                        -- What you already hold (bags, banks, AH listings): an
+                        -- item still sitting unsold isn't made again until it
+                        -- sells. Whether it sells at all is for the
+                        -- recommendation rules (TSM or Goldsmith Data).
                         local held = e.itemID and addon:GetHeld(e.itemID, e.tier) or 0
-                        local left = demand and (demand - held)
-                        if left and left < 1 then
-                            caps[capKey] = 0
-                            -- Worth concentration but capped: kept so the
-                            -- Crafts tab can say why nothing is planned
-                            local prev = skipped[capKey]
-                            if not prev or e.concentrationValue > prev.row.concentrationValue then
-                                local _, source = addon:GetDemand(e.itemID, recipe.outputName)
-                                skipped[capKey] = { recipe = recipe, row = e, tierCount = e.tierCount,
-                                    demand = demand, demandSource = e.demandSource or source, held = held }
-                            end
+                        local cap
+                        if held >= 1 then
+                            cap = 0
+                        elseif source == "TSM region" then
+                            -- Every seller's sales: about a day of them at most
+                            cap = (demand < 1 or e.outputPerCraft <= 0) and 0
+                                or math.max(math.floor(demand / e.outputPerCraft), 1)
                         else
-                            caps[capKey] = (left and e.outputPerCraft > 0)
-                                and math.max(math.floor(left / e.outputPerCraft), 1) or math.huge
+                            -- Your own sales only show it sells at least that
+                            -- fast: you couldn't make more (concentration is the
+                            -- limit), or it wasn't worth making then (user,
+                            -- 2026-10-09). Concentration itself caps the plan.
+                            cap = math.huge
                         end
+                        caps[capKey] = cap
+                        if cap == 0 then
+                            -- Worth concentration but held back: kept so the
+                            -- Crafts tab can say why nothing is planned
+                            skipped[capKey] = { recipe = recipe, row = e, tierCount = e.tierCount,
+                                demand = demand, demandSource = source, held = held }
+                        end
+                    elseif caps[capKey] == 0 and skipped[capKey]
+                        and e.concentrationValue > skipped[capKey].row.concentrationValue then
+                        -- The best mix of a held-back item, for the hover
+                        skipped[capKey].row = e
                     end
                     if caps[capKey] > 0 then
                         found[capKey] = found[capKey] or {}

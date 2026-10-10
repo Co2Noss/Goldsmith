@@ -31,6 +31,9 @@ end
 
 function addon:DemandColor(demand, itemID)
     if not demand then return "dim" end
+    -- Without TSM it's your own sales (GetDemand), which only show it sells
+    -- at least that fast, so a low number isn't a warning
+    if not addon:HasTSM() then return "text" end
     if demand < MIN_DEMAND or (itemID and addon:IsGear(itemID) and demand < GEAR_MIN_DEMAND) then
         return "warning"
     end
@@ -85,9 +88,12 @@ function addon:WhyNotRecommended(recipe, row, shownExpansions)
     elseif level then
         return nil
     end
-    local demand = row.demand or addon:GetDemand(itemID, recipe.outputName)
+    local demand, source = row.demand, row.demandSource
+    if not demand then demand, source = addon:GetDemand(itemID, recipe.outputName) end
     if demand == nil then return "No sales data, so there's no telling whether it sells." end
-    if demand < MIN_DEMAND then
+    -- Only the region's sales (TSM) can say it sells too slowly: your own
+    -- only show what you made and sold (user, 2026-10-09)
+    if demand < MIN_DEMAND and source == "TSM region" then
         return string.format("Sells under %d a day, so it may take a long time to sell.", MIN_DEMAND)
     end
     if addon:IsGear(itemID) and demand < GEAR_MIN_DEMAND and not SoldAtProfit(recipe, row) then
@@ -856,10 +862,18 @@ function addon:SuggestedQuantity(itemName, regionDemand)
         end
         cap = MAX_BATCH
     else
+        -- Your sales without a batch to time them against only show it sells
+        -- at least this fast: you may not have had more to sell, or it
+        -- wasn't worth making then (user, 2026-10-09). So they can raise a
+        -- first batch, never lower it.
         local sold = itemName and RecentSold(itemName) or 0
-        if sold > 0 then
-            make = math.max(math.floor(sold / SALES_DAYS), 1)
+        local perDay = math.floor(sold / SALES_DAYS)
+        if perDay > FIRST_BATCH then
+            make = perDay
             why = string.format("a day's worth (you sold %d in the last %d days)", sold, SALES_DAYS)
+        elseif sold > 0 then
+            make = FIRST_BATCH
+            why = string.format("a first batch of %d (you sold %d in the last %d days)", FIRST_BATCH, sold, SALES_DAYS)
         else
             make = FIRST_BATCH
             why = string.format("a first batch of %d (you haven't sold any in the last %d days)", FIRST_BATCH, SALES_DAYS)

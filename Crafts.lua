@@ -2388,17 +2388,17 @@ local function CappedConcentration(conc)
     return list
 end
 
--- Why one was held back: "you hold 2, more than a day's sales" or "sells
--- about 1 every 14 days (your sales)"
+-- Why one was held back: "You hold 2 unsold: more once they sell", or
+-- (TSM) "The region sells about 1 every 3 days (TSM region)"
 local function CappedReason(c)
-    local source = c.demandSource and (" (" .. c.demandSource .. ")") or ""
     if c.held and c.held >= 1 then
-        return string.format("You hold %d, about %s a day sell%s", c.held, addon:FormatDemand(c.demand), source)
+        return string.format("You hold %d unsold: more once %s", c.held, c.held == 1 and "it sells" or "they sell")
     end
+    local source = c.demandSource and (" (" .. c.demandSource .. ")") or ""
     if c.demand and c.demand > 0 and c.demand < 1 then
-        return string.format("Sells about 1 every %d days%s", math.floor(1 / c.demand + 0.5), source)
+        return string.format("The region sells about 1 every %d days%s", math.floor(1 / c.demand + 0.5), source)
     end
-    return string.format("Sells about %s a day%s", addon:FormatDemand(c.demand), source)
+    return string.format("The region sells under 1 a day%s", source)
 end
 
 local function CreateBudget(parent)
@@ -2450,7 +2450,7 @@ local function CreateBudget(parent)
             local capped = CappedConcentration(conc)
             if #capped > 0 then
                 local first = capped[1]
-                bar.best:SetText(string.format("Nothing planned: %s%s held back by sales (hover)",
+                bar.best:SetText(string.format("Nothing planned: %s%s held back (hover for why)",
                     first.recipe.outputName, #capped > 1 and string.format(" +%d", #capped - 1) or ""))
             else
                 bar.best:SetText("Nothing worth concentration right now.")
@@ -2484,7 +2484,7 @@ local function CreateBudget(parent)
         local capped = CappedConcentration(conc)
         if #capped > 0 then
             tooltip:AddLine(" ")
-            tooltip:AddLine("Worth it, but held back by sales", 1, 1, 1)
+            tooltip:AddLine("Worth it, but held back", 1, 1, 1)
             for i, c in ipairs(capped) do
                 if i > 6 then
                     Note(tooltip, string.format("    and %d more", #capped - 6))
@@ -2495,7 +2495,7 @@ local function CreateBudget(parent)
                     string.format("%s a point", Money(c.row.concentrationValue)), "gold")
                 Note(tooltip, "        " .. CappedReason(c))
             end
-            Why(tooltip, "Goldsmith only plans about a day of an item's sales, less what you already hold, so nothing sits unsold.")
+            Why(tooltip, "An item you still hold unsold isn't made again until it sells. Your own sales never limit a plan: they only show what you could make.")
         end
         Why(tooltip, "Mixes of lower and higher quality materials are compared for each craft, to get the most gold from your concentration.", "gold")
         Why(tooltip, "Extra = profit on top of crafting the same thing without concentration. Each craft is capped at about a day of that item's sales.")
