@@ -644,8 +644,9 @@ function addon:GetBestSalvage(prof)
     local current = addon:GetCurrentExpansion()
     for _, row in ipairs(addon:GetSalvageRows(prof, {})) do
         local info = row.info
+        -- Hidden with Not this (by what's salvaged): out for a day
         if not row.whyNot and addon:GetItemExpansion(row.itemID) == current and not info.partial and info.profit and info.profit > 0
-            and info.margin and info.margin >= minROI then
+            and info.margin and info.margin >= minROI and not addon:IsSnoozed(row.salvage and row.salvage.inputID) then
             table.insert(best, row)
         end
     end

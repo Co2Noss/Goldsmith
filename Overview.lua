@@ -183,7 +183,12 @@ local function ConcentrationAction(conc)
     end
     if not best then return nil end
     local first = best.plan[1]
+    local items = {}
+    for _, p in ipairs(best.plan) do
+        table.insert(items, { itemID = p.recipe.outputItemID, name = p.recipe.outputName })
+    end
     return {
+        items = items,
         highlight = true,
         title = string.format("%sCraft %dx %s", addon:ProfessionIconText(best.profession),
             first.crafts, ItemText(first.row.itemID, ShortName(first.recipe.outputName, 34), first.row.tier, first.tierCount)),
@@ -225,7 +230,12 @@ local function CooldownAction(prof)
             who ~= "" and ("  ·" .. who) or ""))
     end
     local first = crafts[1]
+    local items = {}
+    for i = 1, math.min(#crafts, CRAFTS_SHOWN) do
+        table.insert(items, { itemID = crafts[i].recipe.outputItemID, name = crafts[i].recipe.outputName })
+    end
     return {
+        items = items,
         title = addon:CooldownsLabel() .. " ready",
         detail = table.concat(parts, "\n"),
         tooltip = function(tooltip)
@@ -261,7 +271,12 @@ local function CraftsAction(crafts, prof)
             ItemText(c.itemID, ShortName(c.recipe.outputName, 26), c.row.tier, c.row.tierCount),
             addon:Colorize(Signed(c.profit), "profit"), who ~= "" and ("  ·" .. who) or ""))
     end
+    local items = {}
+    for i = 1, math.min(#crafts, CRAFTS_SHOWN) do
+        table.insert(items, { itemID = crafts[i].recipe.outputItemID, name = crafts[i].recipe.outputName })
+    end
     return {
+        items = items,
         title = "Best crafts right now",
         detail = table.concat(parts, "\n"),
         tooltip = function(tooltip)
@@ -311,7 +326,15 @@ local function SalvageAction(prof)
         table.insert(parts, string.format("%s%s   %s (%.0f%%)%s", icon, ShortName(r.recipe.outputName, 30),
             addon:Colorize(Signed(r.info.profit), "profit"), r.info.margin, who ~= "" and ("  ·" .. who) or ""))
     end
+    local items = {}
+    for i = 1, math.min(#rows, CRAFTS_SHOWN) do
+        local s = rows[i].salvage
+        if s and s.inputID then
+            table.insert(items, { itemID = s.inputID, name = rows[i].recipe.outputName })
+        end
+    end
     return {
+        items = items,
         title = "Worth salvaging",
         detail = table.concat(parts, "\n"),
         tooltip = function(tooltip)
@@ -373,6 +396,24 @@ local function DealsAction(prof)
     }
 end
 
+-- "Not this": hide one of a card's suggestions for a day (SetSnoozed),
+-- or bring hidden ones back. On the card, where the suggestion is (design
+-- review, 2026-10-10).
+local function NotThisMenu(owner, items)
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+    MenuUtil.CreateContextMenu(owner, function(_, root)
+        root:CreateTitle("Not this: hide it for a day")
+        for _, item in ipairs(items or {}) do
+            root:CreateButton(item.name, function() addon:SetSnoozed(item.itemID, item.name, true) end)
+        end
+        local hidden = addon:GetSnoozedItems()
+        if #hidden > 0 then
+            root:CreateDivider()
+            root:CreateButton(string.format("Bring back hidden ones (%d)", #hidden), function() addon:ClearSnoozed() end)
+        end
+    end)
+end
+
 local function CreateActionRow(parent, i)
     local row = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     -- Height and position are set in FillActionRow / Refresh, to fit the text
@@ -382,7 +423,17 @@ local function CreateActionRow(parent, i)
     row.number:SetText(tostring(i))
     row.title = UI.Text(row, "body")
     row.title:SetPoint("TOPLEFT", 34, -11)
-    row.title:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+    row.title:SetPoint("RIGHT", row, "RIGHT", -30, 0)
+    -- Not this (cards with suggestions); above the row, so its click
+    -- doesn't open the plan
+    row.notThis = UI.IconButton(row, 20, "x", nil, function(self) NotThisMenu(self, row.action and row.action.items) end,
+        { font = "small" })
+    row.notThis:SetPoint("TOPRIGHT", -6, -6)
+    row.notThis:SetFrameLevel(row:GetFrameLevel() + 5)
+    UI.SetTooltip(row.notThis, function(tooltip)
+        tooltip:AddLine("Not this", 1, 1, 1)
+        tooltip:AddLine("Hide one of these suggestions for a day. It comes back after that if it's still a good bet.", 0.8, 0.8, 0.8, true)
+    end, "ANCHOR_BOTTOM")
     row.detail = UI.Text(row, "small", "muted")
     row.detail:SetPoint("TOPLEFT", row.title, "BOTTOMLEFT", 0, -5)
     row.detail:SetPoint("RIGHT", row, "RIGHT", -10, 0)
@@ -419,6 +470,7 @@ local function FillActionRow(row, action)
     end
     row.title:SetText(action.title)
     row.title:SetTextColor(addon:Color(action.muted and "muted" or "text"))
+    row.notThis:SetShown(action.items ~= nil and #action.items > 0)
     row.detail:SetText(action.detail or "")
     -- Tall enough for the title and however many detail lines there are
     local textHeight = row.title:GetStringHeight() + 5 + row.detail:GetStringHeight()
@@ -731,6 +783,25 @@ local function Create(parent)
         tooltip:AddLine("By character", 1, 1, 1)
         tooltip:AddLine("A to-do list for each character: what to craft on who, and how many.", 0.8, 0.8, 0.8, true)
     end, "ANCHOR_BOTTOM")
+    -- "2 hidden": suggestions hidden with Not this, so they can always be
+    -- brought back, even once their card is gone
+    view.hidden = UI.Button(actions, "", 80, 22, function(self)
+        if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+        MenuUtil.CreateContextMenu(self, function(_, root)
+            root:CreateTitle("Hidden for a day (Not this)")
+            for _, item in ipairs(addon:GetSnoozedItems()) do
+                root:CreateButton(string.format("%s  (back %s)", item.name, date("%a %H:%M", item.untilTime)),
+                    function() addon:SetSnoozed(item.itemID, item.name, false) end)
+            end
+            root:CreateDivider()
+            root:CreateButton("Bring them all back", function() addon:ClearSnoozed() end)
+        end)
+    end)
+    view.hidden:SetPoint("RIGHT", view.byCharacter, "LEFT", -8, 0)
+    UI.SetTooltip(view.hidden, function(tooltip)
+        tooltip:AddLine("Hidden suggestions", 1, 1, 1)
+        tooltip:AddLine("Ones you hid with Not this (the x on a card). Click to bring one back now.", 0.8, 0.8, 0.8, true)
+    end, "ANCHOR_BOTTOM")
     view.actionRows = {}
     for i = 1, ACTION_COUNT do
         view.actionRows[i] = CreateActionRow(actions, i)
@@ -835,6 +906,9 @@ local function Refresh(view, state)
     view.setup:SetShown(inSetup)
     view.setup.close:SetShown(inSetup)
     view.byCharacter:SetShown(not inSetup)
+    local hiddenCount = #addon:GetSnoozedItems()
+    view.hidden:SetShown(not inSetup and hiddenCount > 0)
+    view.hidden:SetLabel(string.format("%d hidden", hiddenCount))
     view.actionsTitle:SetText(not inSetup and "Do this next"
         or allDone and "Getting started: all done, close this with X" or "Getting started")
 

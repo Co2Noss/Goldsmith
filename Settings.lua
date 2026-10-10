@@ -308,6 +308,51 @@ function addon:GetIgnoredItems()
     return list
 end
 
+-- "Not this" on a Do this next suggestion: hidden from every suggestion
+-- (Do this next, to-dos, concentration plans) for a day, then it can come
+-- back if it's still a good bet (user, 2026-10-10: hide until tomorrow;
+-- Ignore stays the permanent way). GoldsmithDB.snoozed[itemID] =
+-- { name, untilTime }, keyed by the craft's output (or what's salvaged).
+local SNOOZE_SECONDS = 24 * 3600
+
+function addon:IsSnoozed(itemID)
+    local entry = itemID and GoldsmithDB.snoozed and GoldsmithDB.snoozed[itemID]
+    if not entry then return false end
+    if entry.untilTime <= time() then
+        GoldsmithDB.snoozed[itemID] = nil
+        return false
+    end
+    return true, entry.untilTime
+end
+
+function addon:SetSnoozed(itemID, name, snoozed)
+    if not itemID then return end
+    GoldsmithDB.snoozed = GoldsmithDB.snoozed or {}
+    GoldsmithDB.snoozed[itemID] = snoozed and { name = name, untilTime = time() + SNOOZE_SECONDS } or nil
+    addon:DataChanged()
+    if addon.RefreshWindow then addon.RefreshWindow() end
+end
+
+-- { { itemID, name, untilTime } } still hidden, soonest back first
+function addon:GetSnoozedItems()
+    local list = {}
+    for itemID in pairs(GoldsmithDB.snoozed or {}) do
+        local on, untilTime = addon:IsSnoozed(itemID)
+        if on then
+            local entry = GoldsmithDB.snoozed[itemID]
+            table.insert(list, { itemID = itemID, name = entry.name or ("item " .. itemID), untilTime = untilTime })
+        end
+    end
+    table.sort(list, function(a, b) return a.untilTime < b.untilTime end)
+    return list
+end
+
+function addon:ClearSnoozed()
+    GoldsmithDB.snoozed = {}
+    addon:DataChanged()
+    if addon.RefreshWindow then addon.RefreshWindow() end
+end
+
 -- Chat messages Goldsmith prints by itself (not answers to /gsm commands).
 -- kind is "money" (a sale, purchase or deposit) or "info" (anything else).
 function addon:Notify(kind, msg, ...)

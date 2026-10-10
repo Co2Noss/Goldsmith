@@ -70,6 +70,11 @@ function addon:WhyNotRecommended(recipe, row, shownExpansions)
     if addon:IsIgnored(recipe.outputItemID) then
         return "You're ignoring this item. Right-click it to stop, or Settings > Ignored items."
     end
+    local snoozed, untilTime = addon:IsSnoozed(recipe.outputItemID)
+    if snoozed then
+        return string.format("You hid it from suggestions (Not this) until %s. "N hidden" by Do this next brings it back sooner.",
+            date("%a %H:%M", untilTime))
+    end
     local itemID = row.itemID or recipe.outputItemID
     local expansion = itemID and addon:GetItemExpansion(itemID)
     if not expansion then return "The game hasn't loaded this item yet." end
