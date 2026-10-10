@@ -58,6 +58,11 @@ addon.themes = {
             bandLine    = Hex("e8c25a", 0.35),
             line        = Hex("b48be0"),
             barEmpty    = Hex("3a3b44"),
+            -- Quality stripes on Crafts rows (TierColor), so silver and gold
+            -- rows differ at a glance and not only by the small icon
+            tierTop     = Hex("e8c25a"),
+            tierMid     = Hex("b08d57"),
+            tierLow     = Hex("aeb3bc"),
         },
         -- { file, size, flags, color }
         fonts = {

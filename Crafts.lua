@@ -60,9 +60,11 @@ local CONC_COLUMNS = {
     { key = "saleRate", label = "Sale rate", width = 64, justify = "RIGHT", tsm = true },
 }
 
--- The tier goes before the name, so a long name cut short never hides it
-local function ItemText(item)
-    local tier = item.tier and (addon:TierIconText(item.tier, item.info.tierCount) .. " ") or ""
+-- The tier goes before the name, so a long name cut short never hides it.
+-- iconSize: the list uses a bigger one (TIER_ICON_LIST)
+local TIER_ICON_LIST = 18
+local function ItemText(item, iconSize)
+    local tier = item.tier and (addon:TierIconText(item.tier, item.info.tierCount, iconSize) .. " ") or ""
     return addon:ProfessionIconText(item.recipe.profession) .. tier .. item.recipe.outputName
 end
 
@@ -154,7 +156,25 @@ local function FillCraftRow(row, item)
         or addon:GetRecipeExpansion(item.recipe))
     local label = expansionID
         and addon:Colorize("  " .. addon:GetExpansionName(expansionID), "expansion") or ""
-    cells.item:SetText(ItemText(item) .. label .. (item.ignored and addon:Colorize("  ignored", "dim") or ""))
+    cells.item:SetText(ItemText(item, TIER_ICON_LIST) .. label .. (item.ignored and addon:Colorize("  ignored", "dim") or ""))
+    -- A stripe at the row's left edge in the quality's color (gold, silver,
+    -- bronze for gear's middle tiers): with the bigger icon, two cues, so
+    -- silver and gold rows of the same item tell apart at a glance (user,
+    -- 2026-10-10: try it, to review)
+    if not row.tierStripe then
+        row.tierStripe = row:CreateTexture(nil, "ARTWORK")
+        row.tierStripe:SetWidth(3)
+        row.tierStripe:SetPoint("TOPLEFT", 0, -4)
+        row.tierStripe:SetPoint("BOTTOMLEFT", 0, 4)
+    end
+    local tierColor = addon:TierColor(item.tier, item.info and item.info.tierCount)
+    if tierColor then
+        row.tierStripe:SetColorTexture(addon:Color(tierColor))
+        row.tierStripe:SetAlpha(item.whyNot and 0.45 or 0.9)
+        row.tierStripe:Show()
+    else
+        row.tierStripe:Hide()
+    end
     if item.ignored then
         cells.item:SetTextColor(addon:Color("dim"))
     elseif item.whyNot then

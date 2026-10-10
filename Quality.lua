@@ -1071,12 +1071,23 @@ function addon:PlanConcentration(profession, budget, accept)
     return plan, budget - left, totalGain, capped
 end
 
--- Inline quality icon for a tier, e.g. the silver/gold icon
-function addon:TierIconText(tier, tierCount)
+-- Theme color for a quality tier: the top one gold, the lowest silver,
+-- anything between bronze (gear has 5)
+function addon:TierColor(tier, tierCount)
+    if not tier then return nil end
+    if tier >= (tierCount or 2) then return "tierTop" end
+    if tier <= 1 then return "tierLow" end
+    return "tierMid"
+end
+
+-- Inline quality icon for a tier, e.g. the silver/gold icon; size in
+-- pixels (14 by default)
+function addon:TierIconText(tier, tierCount, size)
+    size = size or 14
     if tierCount == 2 then
-        return string.format("|A:Professions-ChatIcon-Quality-12-Tier%d:14:14|a", tier)
+        return string.format("|A:Professions-ChatIcon-Quality-12-Tier%d:%d:%d|a", tier, size, size)
     end
-    return string.format("|A:Professions-ChatIcon-Quality-Tier%d:14:14|a", tier)
+    return string.format("|A:Professions-ChatIcon-Quality-Tier%d:%d:%d|a", tier, size, size)
 end
 
 function addon:InitializeQuality()
