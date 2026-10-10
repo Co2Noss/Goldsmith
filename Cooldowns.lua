@@ -29,9 +29,21 @@ local SCAN_DELAY = 1
 local SCAN_EVERY = 30   -- at most one full scan this often per profession
 local READ_AFTER_CRAFT = 1
 
+-- Any of the values a secret one: in combat and restricted content (raids,
+-- Mythic+) the game hands addons spell cooldowns and charges as secret
+-- values, which error when compared (a bug report, 2026-10-10)
+local function AnySecret(...)
+    if not issecretvalue then return false end
+    for i = 1, select("#", ...) do
+        if issecretvalue((select(i, ...))) then return true end
+    end
+    return false
+end
+
 -- What the game says about a recipe's cooldown now, or nil without any
 -- sign of one: { cd (seconds left), day, charges, maxCharges, chargeSeconds,
--- duration }
+-- duration }. nil, true when the game won't say right now (secret values):
+-- callers leave what's saved alone and read it again later.
 local function Read(recipeID)
     local ok, cd, isDay, charges, maxCharges = pcall(C_TradeSkillUI.GetRecipeCooldown, recipeID)
     if not ok then cd, isDay, charges, maxCharges = nil, nil, nil, nil end
@@ -40,12 +52,17 @@ local function Read(recipeID)
         local okCharges, info = pcall(C_Spell.GetSpellCharges, recipeID)
         if okCharges and type(info) == "table" then chargeInfo = info end
     end
-    local base
+    local ms
     local GetBase = (C_Spell and C_Spell.GetSpellBaseCooldown) or GetSpellBaseCooldown
     if GetBase then
-        local okBase, ms = pcall(GetBase, recipeID)
-        if okBase and type(ms) == "number" then base = ms / 1000 end
+        local okBase, value = pcall(GetBase, recipeID)
+        if okBase then ms = value end
     end
+    if AnySecret(cd, isDay, charges, maxCharges, ms) or (chargeInfo and AnySecret(chargeInfo.maxCharges,
+            chargeInfo.currentCharges, chargeInfo.cooldownDuration)) then
+        return nil, true
+    end
+    local base = type(ms) == "number" and ms / 1000 or nil
 
     maxCharges = (maxCharges and maxCharges > 0 and maxCharges) or (chargeInfo and chargeInfo.maxCharges) or 0
     -- One charge is just a cooldown
@@ -113,7 +130,12 @@ local function Record(recipeID, info)
     local c = addon.char
     c.cooldowns = c.cooldowns or {}
     local entry = c.cooldowns[recipeID]
-    info = info or Read(recipeID)
+    if not info then
+        local unreadable
+        info, unreadable = Read(recipeID)
+        -- Secret values: keep what's saved rather than call it ready
+        if unreadable then return entry ~= nil end
+    end
     if not info then
         -- Known cooldown recipe reading as nothing: it's ready
         if entry then
@@ -240,8 +262,13 @@ local function ScanOpenProfession(force)
         local info = C_TradeSkillUI.GetRecipeInfo(id)
         if info and info.learned then
             local known = addon.char.cooldowns and addon.char.cooldowns[id]
-            local cooldown = Read(id)
-            if cooldown or known then
+            local cooldown, unreadable = Read(id)
+            if unreadable then
+                -- The game won't say now (combat, restricted content): try
+                -- the whole profession again next time instead
+                lastScan[profession] = nil
+                break
+            elseif cooldown or known then
                 Record(id, cooldown)
                 changed = true
             end
@@ -261,8 +288,11 @@ local function OnCast(spellID)
     local tracked = addon.char.cooldowns and addon.char.cooldowns[spellID]
     if not tracked and not GoldsmithDB.recipes[spellID] then return end
     C_Timer.After(READ_AFTER_CRAFT, function()
-        local info = Read(spellID)
-        if info then
+        local info, unreadable = Read(spellID)
+        if unreadable then
+            -- Can't tell now; the next profession scan reads it again
+            return
+        elseif info then
             Record(spellID, info)
         elseif tracked then
             -- The game no longer says; assume one use was spent
