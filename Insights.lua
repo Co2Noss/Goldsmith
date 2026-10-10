@@ -452,23 +452,12 @@ function addon:CraftKey(recipeID, row)
     return string.format("%d:%d:%s", recipeID, row.tier or 0, row.concentrate and "c" or "")
 end
 
--- The "Show cost as" setting (Settings.lua). With "worst", a copy of a
--- Crafts row with cost, profit and ROI worked out from the worst case (no
--- procs), keeping the estimate as estimatedCost. Rows are shared (tier
--- rows are cached per frame), so they're copied, never changed. Call it
--- with the crafter's stats in use (WithCharacter).
+-- Was the "Show cost as" setting (worst case everywhere). Removed (design
+-- review trimming, user 2026-10-10): a hidden mode changing every number,
+-- and the worst case is in each craft's hover anyway. Costs are always the
+-- estimate from your stats; kept as a pass-through for its callers.
 local function ApplyCostMode(recipe, row)
-    if not row or addon:Setting("costMode") ~= "worst" then return row end
-    local worst = addon:GetWorstCaseCost(recipe, row)
-    if not worst then return row end
-    local copy = {}
-    for k, v in pairs(row) do copy[k] = v end
-    copy.estimatedCost, copy.cost, copy.costMode = row.cost, worst, "worst"
-    if row.price then
-        copy.profit = row.price * (1 - AH_CUT) - worst
-        copy.margin = worst > 0 and (copy.profit / worst * 100) or nil
-    end
-    return copy
+    return row
 end
 
 -- The best way to make a recipe without concentration: its most
@@ -496,8 +485,8 @@ end
 -- character who could make it, or nil if nobody does.
 local plainRowCache = addon:NewCache()
 
--- A character's best plain row for a recipe, with the "Show cost as"
--- setting applied, and items made per craft
+-- A character's best plain row for a recipe (estimated cost),
+-- and items made per craft
 local function PlainRowFor(charKey, recipe)
     local store = plainRowCache:Get()
     local key = charKey .. ":" .. recipe.recipeID
@@ -564,7 +553,7 @@ end
 -- The most profitable crafts right now, across professions and characters:
 -- an ROI of at least the "Worth crafting at" setting, worth recommending
 -- (IsRecommendable), with all material costs known. Most profit per item
--- first. Costs follow the "Show cost as" setting.
+-- first.
 --
 -- Suggests how many to make (SuggestedQuantity). Once you've made it, the
 -- craft drops off, and it comes back only when you've sold every one you
@@ -1056,7 +1045,7 @@ end
 --   profitableOnly - only rows with a profit at current prices and an ROI
 --                    of at least the "Worth crafting at" setting (including
 --                    ones with unknown costs, whose profit is at most that)
--- Costs follow the "Show cost as" setting.
+-- Costs are the estimate from your stats.
 --   showExpansion  - function(expansionID) -> whether to include it
 --   showIgnored    - include ignored items (Settings > Ignored items)
 --   shownExpansions - older crafts from expansions picked in the header are
@@ -1595,10 +1584,9 @@ function addon:GetItemDetails(name, itemID)
     if not recipe or d.material then
         d.paid, d.paidSource = addon:GetOwnCost(name)
     end
-    -- Not crafted yet: the cost the "Show cost as" setting picks. Some of
-    -- what you hold gathered: what you spent, gathered ones free (all free:
-    -- no break-even, see GetHeldCashCost)
-    local worstMode = addon:Setting("costMode") == "worst" and d.worst
+    -- Not crafted yet: the estimated cost. Some of what you hold gathered:
+    -- what you spent, gathered ones free (all free: no break-even, see
+    -- GetHeldCashCost)
     local paid = d.paid
     if not d.yours and (not recipe or d.material) then
         local cash, bought, boughtAt, free = addon:GetHeldCashCost(name)
@@ -1608,8 +1596,8 @@ function addon:GetItemDetails(name, itemID)
             d.free = cash <= 0
         end
     end
-    local basis = d.yours or paid or (worstMode and d.worst) or d.estimated
-    d.breakEvenFrom = (d.yours and "yours") or (d.cash and paid and "yours") or (paid and "paid") or (worstMode and "worst")
+    local basis = d.yours or paid or d.estimated
+    d.breakEvenFrom = (d.yours and "yours") or (d.cash and paid and "yours") or (paid and "paid")
         or (d.estimated and "estimated")
     d.breakEven = basis and basis / (1 - AH_CUT)
 

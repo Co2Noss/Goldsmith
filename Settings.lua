@@ -5,7 +5,6 @@ local UI = addon.UI
 --
 -- Few settings, strong defaults. Saved for the account in
 -- GoldsmithDB.settings; anything not set uses its default:
---   costMode    - "estimated" (from your stats) or "worst" (no procs)
 --   priceSource - "auto" (whichever is newer), "auctionator" or "tsm"
 --   minROI      - ROI (%) a craft needs to count as worth crafting
 --   dealPercent - how far below its usual price a material counts as cheap
@@ -19,9 +18,10 @@ local UI = addon.UI
 --                 concentration and the Overview
 --   showMinimap - the minimap button (Minimap.lua)
 -- Concentration in Crafts isn't here: the Crafts tab's switch remembers it.
+-- "Show cost as" (estimated or worst case) was removed 2026-10-10: costs
+-- are always the estimate; the worst case is in each craft's hover.
 
 local DEFAULTS = {
-    costMode = "estimated",
     priceSource = "auto",
     minROI = 15,
     dealPercent = 10,
@@ -390,10 +390,6 @@ local ROW_HEIGHT = 74
 local ROWS_TOP = -78
 
 local CHOICES = {
-    costMode = {
-        { value = "estimated", label = "Estimated (recommended)" },
-        { value = "worst", label = "Worst case" },
-    },
     priceSource = {
         { value = "auto", label = "Automatic (recommended)" },
         { value = "auctionator", label = "Prefer Auctionator" },
@@ -448,12 +444,6 @@ end
 
 -- Hover text for each setting: a title, then paragraphs
 local HELP = {
-    costMode = {
-        "Show cost as",
-        "Estimated: what a craft costs you on average, using your multicraft (extra items) and resourcefulness (materials back). The most accurate number for deciding what to craft.",
-        "Worst case: no multicraft or resourcefulness at all, like TSM's crafting cost. Cautious: it makes every craft look less profitable than it usually is.",
-        "Used for Cost, Profit and ROI on the Crafts tab and the Overview's best crafts, and for break-even when you haven't crafted an item yet. The craft hover and item pages always show both.",
-    },
     priceSource = {
         "Price source",
         "Automatic: an Auctionator scan made since you logged in wins; otherwise TSM's price, which its app updates about hourly. Live prices from AH searches you've just made are used first.",
@@ -606,7 +596,7 @@ local function SetKeepDays(value, panel)
 end
 
 local COLUMNS = {
-    { title = "Crafting and prices", rows = { "costMode", "priceSource", "minROI", "dealPercent", "heldDays", "ignored", "keepDays" } },
+    { title = "Crafting and prices", rows = { "priceSource", "minROI", "dealPercent", "heldDays", "ignored", "keepDays" } },
     { title = "Display", rows = { "tooltips", "chat", "characters", "showMinimap", "keybind" } },
 }
 
@@ -638,7 +628,6 @@ function addon:CreateSettingsPanel(parent)
 
     local rows = {}
 
-    rows.costMode = ChoiceRow(panel, "costMode", "Show cost as", "Estimated uses your stats; worst case assumes no procs.")
     rows.priceSource = ChoiceRow(panel, "priceSource", "Price source", "Where AH prices come from when both Auctionator and TSM have one.")
     rows.minROI = ChoiceRow(panel, "minROI", "Worth crafting at", "The ROI a craft needs for Recommended and Best crafts.")
     rows.dealPercent = ChoiceRow(panel, "dealPercent", "Cheap materials", "How far below usual a material's price counts as cheap.")

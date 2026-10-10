@@ -389,13 +389,7 @@ local function CraftTooltip(tooltip, item)
 
     tooltip:AddLine(" ")
     local stats = GoldsmithDB.characters[item.charKey] and GoldsmithDB.characters[item.charKey].recipeStats[recipe.recipeID]
-    if info.costMode == "worst" then
-        -- "Show cost as: Worst case" (Settings)
-        Line(tooltip, "Cost (worst case, no procs)", Money(info.cost) .. (info.partial and "+" or ""), "gold")
-        Why(tooltip, "Materials for one item if no multicraft or resourcefulness ever happens. Settings > Show cost as picks this or the estimate.")
-        Line(tooltip, "Estimated", Money(info.estimatedCost))
-        Why(tooltip, StatsText(stats))
-    else
+    do
         Line(tooltip, "Cost (estimated)", Money(info.cost) .. (info.partial and "+" or ""), "gold")
         Why(tooltip, "Materials for one item: what you paid for ones you hold, otherwise today's AH price. Less what resourcefulness saves on average, spread over the extra items multicraft makes.")
         Why(tooltip, StatsText(stats))
@@ -2908,9 +2902,6 @@ local function Refresh(v, state)
     loading:Begin(v.list)
 
     local concOn = ui.craftsConcentration == true
-    -- The Cost column says which cost it shows (Settings: Show cost as)
-    local costLabel = addon:Setting("costMode") == "worst" and "Worst cost" or "Cost"
-    SIMPLE_COLUMNS[2].label, CONC_COLUMNS[2].label = costLabel, costLabel
     v.concSwitch:SetOn(concOn)
     v.show:SetLabel("Show: " .. ShowLabel(CraftsShow())
         .. (ui.craftsGear == "hide" and ", no gear" or ui.craftsGear == "only" and ", gear only" or ""))
