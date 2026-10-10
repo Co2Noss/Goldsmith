@@ -797,8 +797,10 @@ local HELP_SECTIONS = {
         addon:Colorize("History", "text") .. ": every purchase, sale, craft and deposit; right-click an entry to fix it.",
         addon:Colorize("Characters", "text") .. ": a to-do list for each character, its craft cooldowns, and which characters count.",
       }, "\n") },
-    { "Hovers",
-      "Hovers show the numbers. Hold Ctrl over one to see what each number means, how it's worked out and what clicking does; let go and they're gone." },
+    { "Hovers and clicks",
+      "Hovers show the numbers. Hold Ctrl over one to see what each number means, how it's worked out and what clicking does; let go and they're gone. The line along the bottom of the window says what clicking, right-clicking and shift-clicking do on the screen you're on. A gold Filtered button by Settings means something is hiding part of the list: click it to see everything." },
+    { "When a suggestion isn't for you",
+      "The x on a Do this next card hides one of its suggestions for a day; it comes back after that if it's still a good bet. To hide something for good, right-click it on Crafts and pick Ignore. Deleted something in History by mistake? Click Undo at the bottom right." },
     { "Item tooltips",
       "Show your cost, profit and break-even price. Hold Shift for each material's cost. Settings > Item tooltips makes them shorter or turns them off." },
     { "Recommended: Auctionator",
@@ -806,7 +808,7 @@ local HELP_SECTIONS = {
     { "Recommended: TSM",
       "Goldsmith works without it too. With TSM installed, Goldsmith uses its region sales per day and sale rates instead of Goldsmith Data's Sells / Slow / Hardly sells, a check on listings far from the usual price, and prices between Auctionator scans. TSM's numbers are probably more accurate, but Goldsmith's own sell levels work well without it." },
     { "Commands",
-      "/gsm help lists them all. Handy ones: /gsm chars (your characters and concentration), /gsm cooldowns (craft cooldowns on every character), /gsm recipes, /gsm milling, /gsm setup (the getting started checklist), /gsm tour (a short tour of the window)." },
+      "Everything is in the window; commands are for checking what Goldsmith recorded. /gsm help lists them all, for example /gsm cooldowns (every craft cooldown it's found, and what the game reports), /gsm recipes and /gsm milling. The buttons below bring back the getting started checklist and the tour." },
 }
 
 function addon:CreateHelpPanel(parent, settings)
