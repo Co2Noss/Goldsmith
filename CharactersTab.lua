@@ -133,7 +133,21 @@ local function CreateTodoLine(card, i)
     line.text:SetPoint("RIGHT", line.profit, "LEFT", -6, 0)
     line:SetScript("OnClick", function(self, button)
         if button == "RightButton" then
-            ShowCardMenu(card)
+            -- A to-do's own menu: Not this (hide it for a day, as on the
+            -- Overview; user, 2026-10-10), or the character's options
+            local item = self.item
+            if not (item and MenuUtil and MenuUtil.CreateContextMenu) then
+                ShowCardMenu(card)
+                return
+            end
+            MenuUtil.CreateContextMenu(self, function(_, root)
+                root:CreateTitle(item.recipe.outputName)
+                root:CreateButton("Not this: hide it for a day", function()
+                    addon:SetSnoozed(item.recipe.outputItemID, item.recipe.outputName, true)
+                end)
+                root:CreateDivider()
+                root:CreateButton("Character options...", function() ShowCardMenu(card) end)
+            end)
         elseif self.item then
             local item = self.item
             addon:OpenCraftPlan(item.recipe, item.row, card.key, item.quantity)
@@ -204,6 +218,7 @@ local function CreateTodoLine(card, i)
                 0.6, 0.6, 0.6, true)
         end
         addon:ClickHint(tooltip, "Click to plan it: materials and shopping list.")
+        addon:RightClickHint(tooltip, "Right-click: Not this (hide it for a day)")
     end)
     return line
 end
@@ -444,8 +459,9 @@ local function Reset(view) view.offset = 0 end
 local function Legend()
     return {
         { "click", "a to-do: its plan" },
-        { "right", "a card: exclude or remove the character" },
-        { "hover", "a card: its to-dos and cooldowns" },
+        { "right", "a to-do: not this (hide for a day)" },
+        { "right", "a card: exclude or remove" },
+        { "hover", ": details" },
     }
 end
 

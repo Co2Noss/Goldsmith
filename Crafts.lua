@@ -536,17 +536,48 @@ local function Whole(q)
     return math.ceil(q - 0.0001)
 end
 
+-- Concentration a crafted material's tier row spends per item, and the gold
+-- each point saves against buying it (or, with no AH price, its own extra
+-- per point). nil when the craft doesn't use concentration.
+local function CraftConcValue(node)
+    local craft = node.options and node.options.craft
+    local row = craft and craft.tierRow
+    if not (row and row.concentrate and row.concentration and row.concentration > 0) then return nil end
+    local perItem = row.concentration / math.max(row.outputPerCraft or 1, 1)
+    local buy = node.options.buy and node.options.buy.unit
+    if buy and buy > craft.unit then
+        return (buy - craft.unit) / perItem, perItem, buy
+    end
+    return row.concentrationValue, perItem, nil
+end
+
 local function FillPlanRow(row, node)
     local cells = row.cells
     local indent = string.rep("    ", node.depth - 1) .. (node.depth > 1 and "> " or "")
     local quality = node.qualityTier and (addon:TierIconText(node.qualityTier, node.tierCount or 2) .. " ") or ""
-    cells.item:SetText(indent .. quality .. node.name)
+    -- Crafted on someone else (a Jewelcrafting vial in an Alchemy plan), and
+    -- what its concentration earns: on the row, not only in the hover (user,
+    -- 2026-10-10)
+    local extra = ""
+    local best = node.best
+    if best and best.method == "Craft" and node.toGet > 0 then
+        local parts = {}
+        if best.crafterKey and best.crafterKey ~= addon.charKey then
+            local c = GoldsmithDB.characters[best.crafterKey]
+            table.insert(parts, "on " .. (c and c.name or "another character"))
+        end
+        local value = CraftConcValue(node)
+        if value then
+            table.insert(parts, addon:Colorize(Money(value) .. "/conc", addon:ConcentrationValueColor(value)))
+        end
+        if #parts > 0 then extra = addon:Colorize("  · ", "dim") .. addon:Colorize(table.concat(parts, ", "), "gold") end
+    end
+    cells.item:SetText(indent .. quality .. node.name .. extra)
     cells.need:SetText(Whole(node.need))
     -- Gold you hold counted for this silver row: a gold icon after the count
     local goldIcon = node.gold and (" " .. addon:TierIconText(node.tierCount or 2, node.tierCount or 2)) or ""
     cells.have:SetText(node.have > 0 and (Whole(node.have) .. goldIcon) or "-")
     if node.have <= 0 then cells.have:SetTextColor(addon:Color("dim")) end
-    local best = node.best
     if best then
         -- * marks your own choice (right-click) rather than the cheapest
         -- Salvage says how ("Prospect", "Crush"), not "Mill" for everything
@@ -631,6 +662,13 @@ local function PlanTooltip(tooltip, node)
         local c = GoldsmithDB.characters[o.craft.crafterKey]
         craftDetail = craftDetail .. string.format("\nwith %s's skill: make it on %s", c and c.name or "another character",
             c and c.name or "them")
+    end
+    -- With concentration: how much, and what each point earns
+    local concValue, concPerItem, buyPrice = CraftConcValue(node)
+    if concValue then
+        craftDetail = craftDetail .. string.format("\nuses about %d concentration each", math.floor(concPerItem + 0.5))
+            .. (buyPrice and string.format("\nsaves %s a point vs buying at %s", Money(concValue), Money(buyPrice))
+                or string.format("\nearns %s a point", Money(concValue)))
     end
     Option(o.craft, "Craft it", craftDetail)
     -- A herb that gives several pigments has its price split between them
@@ -1870,7 +1908,8 @@ local function CreatePlanScreen(parent)
         local plan = addon:WithCharacter(p.charKey, addon.BuildPlan, addon, recipe, quantity,
             true, tierInfo)
         screen.current = plan
-        screen.list:SetItems(addon:FlattenPlan(plan))
+        local nodes = addon:FlattenPlan(plan)
+        screen.list:SetItems(nodes)
         screen.crafts:SetFormattedText("%d craft%s, about %.1f made", plan.crafts,
             plan.crafts == 1 and "" or "s", plan.expectedOutput)
 
@@ -1880,8 +1919,30 @@ local function CreatePlanScreen(parent)
         screen.cost.value:SetText(Money(plan.cost) .. (plan.complete and "" or "+"))
         screen.cost.value:SetTextColor(addon:Color("text"))
         local costNote = Money(plan.cost / made) .. " each"
+        -- Concentration the materials' crafts spend too, by who spends it: a
+        -- gold Draught's 299 hid about 1,490 more for its gold vials on
+        -- Trypttamine (2026-10-10)
+        local subConc, subOrder = {}, {}
+        for _, node in ipairs(nodes) do
+            local best = node.best
+            local row = best and best.method == "Craft" and best.tierRow
+            if row and row.concentrate and (node.toGet or 0) > 0 and (row.outputPerCraft or 0) > 0 then
+                local key = best.crafterKey or p.charKey
+                if not subConc[key] then table.insert(subOrder, key) end
+                subConc[key] = (subConc[key] or 0) + math.ceil(node.toGet / row.outputPerCraft) * row.concentration
+            end
+        end
+        local concParts = {}
         if tierInfo and tierInfo.concentrate then
-            costNote = costNote .. string.format(", about %d concentration", tierInfo.concentration * plan.crafts)
+            table.insert(concParts, string.format("%d", tierInfo.concentration * plan.crafts))
+        end
+        for _, key in ipairs(subOrder) do
+            local c = GoldsmithDB.characters[key]
+            table.insert(concParts, string.format("%d%s", subConc[key],
+                key ~= p.charKey and (" on " .. (c and c.name or key)) or " for materials"))
+        end
+        if #concParts > 0 then
+            costNote = costNote .. ", about " .. table.concat(concParts, " + ") .. " concentration"
         end
         if not plan.complete then
             costNote = costNote .. ". Some materials have no price."
