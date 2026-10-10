@@ -61,7 +61,7 @@ end
 -- The tier goes before the name, so a long name cut short never hides it
 local function ItemText(itemID, name, tier, tierCount)
     local icon = tier and tierCount and (addon:TierIconText(tier, tierCount) .. " ") or ""
-    return icon .. (name or C_Item.GetItemNameByID(itemID) or "?")
+    return icon .. (name or (itemID and addon:KnownItemName(itemID)) or "?")
 end
 
 -- Tiles
@@ -154,11 +154,15 @@ local function FillConcentrationTile(tile, conc)
     end
     tile:Set("Concentration", string.format("%d / %d", conc.current, conc.max), "conc", note)
     tile.tooltip = function(tooltip)
-        tooltip:AddLine("Concentration on all characters", 1, 1, 1)
+        tooltip:AddLine("Concentration", 1, 1, 1)
         for _, row in ipairs(conc.rows) do
+            -- Out of 1000 goes without saying (user, 2026-10-10); a different
+            -- maximum is still shown
+            local amount = row.max == 1000 and tostring(math.floor(row.current))
+                or string.format("%d / %d", row.current, row.max)
             tooltip:AddDoubleLine(
-                string.format("%s - %s%s", row.name, addon:ProfessionIconText(row.profession), row.profession),
-                string.format("%d / %d, %s", row.current, row.max, HoursText(row.minutesToFull)),
+                string.format("%s  %s%s", row.name, addon:ProfessionIconText(row.profession), row.profession),
+                string.format("%s, %s", amount, HoursText(row.minutesToFull)),
                 0.9, 0.9, 0.9, 0.91, 0.76, 0.35)
             -- What it's best spent on, rather than a bare "worth" (user,
             -- 2026-10-10: not sold on the formatting)

@@ -28,7 +28,7 @@ local Signed = function(c) return addon:FormatSignedMoney(c) end
 -- The tier goes before the name, so a long name cut short never hides it
 local function ItemText(itemID, name, tier, tierCount)
     local icon = tier and tierCount and (addon:TierIconText(tier, tierCount) .. " ") or ""
-    return icon .. (name or (itemID and C_Item.GetItemNameByID(itemID)) or "?")
+    return icon .. (name or (itemID and addon:KnownItemName(itemID)) or "?")
 end
 
 local function TodoText(item)

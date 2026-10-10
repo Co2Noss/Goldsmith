@@ -74,10 +74,8 @@ end
 -- game hasn't loaded the item (asked to load it for next time).
 local function MaterialName(itemID, fallbackName)
     local tier, tierCount = addon:GetItemTier(itemID)
-    local name = C_Item.GetItemNameByID(itemID)
-    if not name and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
-    return (tier and (addon:TierIconText(tier, tierCount) .. " ") or "")
-        .. (name or fallbackName or ("item " .. itemID))
+    local name = C_Item.GetItemNameByID(itemID) or fallbackName or addon:KnownItemName(itemID)
+    return (tier and (addon:TierIconText(tier, tierCount) .. " ") or "") .. name
 end
 
 local function CharName(charKey)

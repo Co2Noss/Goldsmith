@@ -58,7 +58,7 @@ local function SalvageTooltip(tooltip, item)
         tooltip:AddLine(" ")
         tooltip:AddLine("Should come out:", 0.8, 0.8, 0.8)
         for _, o in ipairs(plan.outputs) do
-            tooltip:AddDoubleLine(string.format("    %.0f %s", o.quantity, o.name or C_Item.GetItemNameByID(o.itemID) or "?"),
+            tooltip:AddDoubleLine(string.format("    %.0f %s", o.quantity, o.name or addon:KnownItemName(o.itemID) or "?"),
                 o.value and Money(o.value) or "no price", 0.9, 0.9, 0.9, 1, 1, 1)
         end
     else
@@ -284,7 +284,7 @@ local function Create(parent)
             tooltip:AddLine(" ")
             tooltip:AddLine(title, r, g, b, true)
             for _, item in ipairs(items) do
-                tooltip:AddDoubleLine("    " .. (item.name or C_Item.GetItemNameByID(item.itemID) or "?"), describe(item),
+                tooltip:AddDoubleLine("    " .. (item.name or addon:KnownItemName(item.itemID) or "?"), describe(item),
                     0.9, 0.9, 0.9, 1, 1, 1)
             end
         end
@@ -344,7 +344,7 @@ local function Warnings(q)
                 table.insert(parts, string.format("%d more", #w.stale - 2))
                 break
             end
-            table.insert(parts, C_Item.GetItemNameByID(item.itemID) or "?")
+            table.insert(parts, addon:KnownItemName(item.itemID))
         end
         w.text = string.format("Old or missing AH prices: %s. Search the AH for %s before buying.",
             table.concat(parts, ", "), #w.stale == 1 and "it" or "them")

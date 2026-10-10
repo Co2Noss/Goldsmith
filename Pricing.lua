@@ -2041,6 +2041,30 @@ function addon:SetFreeItem(itemName, free)
     if addon.Refresh then addon.Refresh() end
 end
 
+-- An item's name even while the game hasn't loaded it: the game's, else the
+-- name saved with your recipes (as a material or what one makes), else
+-- "item 12345". Asks the game to load it for next time. ("item 242606"
+-- showed in a plan's old-prices warning, 2026-10-10.)
+local knownNames, knownNamesVersion
+function addon:KnownItemName(itemID)
+    if not itemID then return nil end
+    local name = C_Item.GetItemNameByID(itemID)
+    if name then return name end
+    if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
+    if not knownNames or knownNamesVersion ~= addon.recipesVersion then
+        knownNames, knownNamesVersion = {}, addon.recipesVersion
+        for _, recipe in pairs(GoldsmithDB.recipes) do
+            if recipe.outputItemID and recipe.outputName then knownNames[recipe.outputItemID] = recipe.outputName end
+            for _, slot in ipairs(recipe.reagents or {}) do
+                for i, id in ipairs(slot.itemIDs or {}) do
+                    if slot.names and slot.names[i] then knownNames[id] = knownNames[id] or slot.names[i] end
+                end
+            end
+        end
+    end
+    return knownNames[itemID] or ("item " .. itemID)
+end
+
 -- By output name (profit numbers ask once per sale), rebuilt when a recipe
 -- is saved or removed. Like the loop it replaced, the first recipe found
 -- wins when two make the same item.
