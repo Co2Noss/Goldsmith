@@ -1700,6 +1700,8 @@ function addon:RecordCraftLot(recipe, resultData, usedReagents, isOrder, orderTe
     local lots = GoldsmithDB.craftLots[resultData.itemID] or {}
     GoldsmithDB.craftLots[resultData.itemID] = lots
     craftLotsVersion = craftLotsVersion + 1
+    -- Made after Goldsmith suggested it (GetFollowedSummary)
+    if addon.WasSuggested and addon:WasSuggested(lot.name) then lot.suggested = true end
     table.insert(lots, lot)
     while #lots > CRAFT_LOT_LIMIT do
         table.remove(lots, 1)

@@ -776,6 +776,32 @@ local function Create(parent)
     actions:SetSize(HALF_WIDTH, MIDDLE_HEIGHT)
     view.actionsTitle = UI.Text(actions, "heading")
     view.actionsTitle:SetPoint("TOPLEFT", 16, -16)
+    -- How last week's suggestions turned out (GetFollowedSummary), beside
+    -- the title: "followed: +320g"
+    view.followed = CreateFrame("Frame", nil, actions)
+    view.followed:SetPoint("LEFT", view.actionsTitle, "RIGHT", 10, -1)
+    view.followed:SetSize(150, 18)
+    view.followed:EnableMouse(true)
+    view.followed.text = UI.Text(view.followed, "small", "muted")
+    view.followed.text:SetPoint("LEFT")
+    UI.SetTooltip(view.followed, function(tooltip)
+        local f = view.followedData
+        if not f then return end
+        tooltip:AddLine("Suggestions you followed, last 7 days", 1, 1, 1)
+        tooltip:AddLine("Crafts you made within a day of Goldsmith suggesting them, and what they sold for.", 0.6, 0.6, 0.6, true)
+        tooltip:AddDoubleLine("Crafted", tostring(f.crafted), 0.8, 0.8, 0.8, 1, 1, 1)
+        tooltip:AddDoubleLine("Sold", tostring(f.sold), 0.8, 0.8, 0.8, 1, 1, 1)
+        tooltip:AddDoubleLine("Not sold yet", tostring(f.unsold), 0.8, 0.8, 0.8, 1, 1, 1)
+        local r, g, b = addon:Color(addon:MoneyColor(f.profit))
+        tooltip:AddDoubleLine("Profit on what sold", Signed(f.profit), 0.8, 0.8, 0.8, r, g, b)
+        tooltip:AddLine(" ")
+        for i = 1, math.min(#f.items, 8) do
+            local s = f.items[i]
+            local ir, ig, ib = addon:Color(addon:MoneyColor(s.profit))
+            tooltip:AddDoubleLine(string.format("%s  %d of %d sold", s.name, s.sold, s.made), Signed(s.profit),
+                0.9, 0.9, 0.9, ir, ig, ib)
+        end
+    end, "ANCHOR_BOTTOM")
     -- The same suggestions split into a to-do list per character
     view.byCharacter = UI.Button(actions, "By character", 100, 22, function() addon:ShowTab("characters") end)
     view.byCharacter:SetPoint("TOPRIGHT", -12, -11)
@@ -920,6 +946,19 @@ local function Refresh(view, state)
     if cooldownAction then table.insert(list, cooldownAction) end
     local craftsAction = CraftsAction(addon:GetBestCrafts(prof, CRAFTS_LISTED), prof)
     if craftsAction then table.insert(list, craftsAction) end
+    -- Note what's suggested, so a craft of it soon after counts as followed
+    if not inSetup then
+        local names = {}
+        for _, action in ipairs({ concAction, cooldownAction, craftsAction }) do
+            for _, item in ipairs(action and action.items or {}) do table.insert(names, item.name) end
+        end
+        addon:MarkSuggested(names)
+    end
+    local followed = addon:GetFollowedSummary(7)
+    view.followedData = followed
+    view.followed:SetShown(not inSetup and followed.crafted > 0)
+    view.followed.text:SetText(string.format("followed: %s", addon:Colorize(Signed(followed.profit),
+        addon:MoneyColor(followed.profit))))
     -- Order: concentration, cooldowns, best crafts, salvage, cheap
     -- materials; the last ones are left out when they don't fit
     local salvageAction = SalvageAction(prof)

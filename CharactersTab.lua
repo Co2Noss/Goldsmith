@@ -399,6 +399,15 @@ end
 
 local function Refresh(view, state)
     local todo = addon:GetCharacterTodo(state.profession)
+    -- Note what's suggested, so a craft of it soon after counts as followed
+    -- (Overview's "followed")
+    local names = {}
+    for _, t in pairs(todo) do
+        for _, item in ipairs(t.items or {}) do
+            if item.recipe and item.recipe.outputName then table.insert(names, item.recipe.outputName) end
+        end
+    end
+    addon:MarkSuggested(names)
     local cooldowns = {}
     for _, cd in ipairs(addon:GetCooldowns(state.profession, true)) do
         cooldowns[cd.charKey] = cooldowns[cd.charKey] or {}

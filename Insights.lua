@@ -793,6 +793,76 @@ local function SalesByName()
     return store.sales
 end
 
+-- Did the suggestions pay off? (design review: "did I reach my goal?")
+--
+-- What the Overview and Characters tab suggest is noted by name when shown
+-- (GoldsmithDB.suggested[name] = time). A craft of it within
+-- SUGGESTED_WINDOW is marked lot.suggested (RecordCraftLot), and
+-- GetFollowedSummary adds up those crafts and what they sold for.
+local SUGGESTED_WINDOW = 24 * 3600
+local SUGGESTED_KEEP = 8 * 86400
+
+function addon:MarkSuggested(names)
+    GoldsmithDB.suggested = GoldsmithDB.suggested or {}
+    local now = time()
+    for _, name in ipairs(names) do GoldsmithDB.suggested[name] = now end
+    for name, t in pairs(GoldsmithDB.suggested) do
+        if now - t > SUGGESTED_KEEP then GoldsmithDB.suggested[name] = nil end
+    end
+end
+
+function addon:WasSuggested(name)
+    local t = name and GoldsmithDB.suggested and GoldsmithDB.suggested[name]
+    return t ~= nil and time() - t <= SUGGESTED_WINDOW
+end
+
+-- Crafts made after a suggestion in the last `days` days, and how they
+-- sold: { crafted, sold, unsold, profit, items = { { name, made, sold,
+-- profit } } (most profit first) }. A sale counts toward a followed craft
+-- when it's of that item, after the craft, up to as many as were made;
+-- its profit is the sale less its recorded cost (or the craft's).
+function addon:GetFollowedSummary(days)
+    local since = time() - (days or 7) * 86400
+    local byName = {}
+    for _, lots in pairs(GoldsmithDB.craftLots or {}) do
+        for _, lot in ipairs(lots) do
+            if lot.suggested and lot.time and lot.time >= since and lot.name and (lot.qty or 0) > 0 then
+                local s = byName[lot.name]
+                if not s then
+                    s = { name = lot.name, made = 0, cost = 0, first = lot.time }
+                    byName[lot.name] = s
+                end
+                s.made = s.made + lot.qty
+                s.cost = s.cost + lot.qty * (lot.unitCost or 0)
+                s.first = math.min(s.first, lot.time)
+            end
+        end
+    end
+    local result = { crafted = 0, sold = 0, unsold = 0, profit = 0, items = {} }
+    local sales = addon.ledger:index().sales
+    for name, s in pairs(byName) do
+        s.sold, s.profit = 0, 0
+        local unitCost = s.made > 0 and s.cost / s.made or 0
+        for _, e in ipairs(sales[name] or {}) do
+            if s.sold >= s.made then break end
+            if e.timestamp >= s.first and (e.quantity or 0) > 0 then
+                local take = math.min(e.quantity, s.made - s.sold)
+                local share = take / e.quantity
+                local cost = e.costBasis and e.costBasis * share or unitCost * take
+                s.profit = s.profit + e.totalCopper * share - cost
+                s.sold = s.sold + take
+            end
+        end
+        result.crafted = result.crafted + s.made
+        result.sold = result.sold + s.sold
+        result.profit = result.profit + s.profit
+        table.insert(result.items, s)
+    end
+    result.unsold = result.crafted - result.sold
+    table.sort(result.items, function(a, b) return a.profit > b.profit end)
+    return result
+end
+
 -- Units of an item you sold in the last SALES_DAYS days
 local function RecentSold(itemName)
     local sold, since = 0, time() - SALES_DAYS * 86400
