@@ -145,10 +145,16 @@ function addon:CreateLedger(store)
             return false
         end,
 
-        -- Puts a removed entry back where it was (History's Undo)
-        restore = function(self, e, index)
+        -- Puts a removed entry back in time order (History's Undo; the
+        -- ledger is oldest first, so several undone in any order land right)
+        restore = function(self, e)
             version = version + 1
-            table.insert(entries, math.min(index or (#entries + 1), #entries + 1), e)
+            local at = #entries + 1
+            for i = #entries, 1, -1 do
+                if (entries[i].timestamp or 0) <= (e.timestamp or 0) then break end
+                at = i
+            end
+            table.insert(entries, at, e)
         end,
 
         clear = function(self)

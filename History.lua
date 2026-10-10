@@ -56,6 +56,19 @@ end
 
 local function FillRow(r, row)
     local c = r.cells
+    -- A deleted entry, kept greyed where it was until you leave History:
+    -- click it to undo (user, 2026-10-10)
+    if row.deleted then
+        c.when:SetText(date("%b %d %H:%M", row.time))
+        c.kind:SetText("Deleted")
+        c.item:SetText(ItemText(row))
+        c.qty:SetText(tostring(row.qty or ""))
+        c.gold:SetText(row.gold and ((row.gold < 0 and "-" or "") .. Money(math.abs(row.gold))) or "-")
+        c.profit:SetText("Undo")
+        for _, cell in pairs(c) do cell:SetTextColor(addon:Color("dim")) end
+        c.profit:SetTextColor(addon:Color("hint"))
+        return
+    end
     c.when:SetText(date("%b %d %H:%M", row.time))
     c.when:SetTextColor(addon:Color("muted"))
     c.kind:SetText(row.kind)
@@ -89,6 +102,12 @@ end
 local GATHERED_LINES = 15
 
 local function Tooltip(tooltip, row)
+    if row.deleted then
+        tooltip:AddLine(ItemText(row), 1, 1, 1)
+        tooltip:AddLine("Deleted. It stays here until you leave History.", 0.6, 0.6, 0.6, true)
+        addon:ClickHint(tooltip, "Click to undo", true)
+        return
+    end
     tooltip:AddLine(ItemText(row), 1, 1, 1)
     -- What the item does (a gathered day of several materials has no one item)
     addon:AddItemDescription(tooltip, row.itemID)
@@ -157,41 +176,40 @@ local function Tooltip(tooltip, row)
     addon:RightClickHint(tooltip, "Right-click for more")
 end
 
--- Deleting: done at once, with an Undo button for UNDO_SECONDS instead of
--- an "Are you sure?" people click through without reading (design review,
--- 2026-10-10). historyView is set in Create.
-local UNDO_SECONDS = 30
-local historyView
+-- Deleting: done at once, no "Are you sure?" (people click through those
+-- without reading; design review). The entry stays in the list, greyed,
+-- where it was, until you leave History: click it to undo. Several can be
+-- deleted and each undone (user, 2026-10-10: in the list, not one button).
+local deletedRows = {}
 
-local function ShowUndo(text, restore)
-    local view = historyView
-    if not view then return end
-    if view.undoTimer then view.undoTimer:Cancel() end
-    view.undo.restore = restore
-    view.undo:SetLabel("Deleted " .. text .. "   Undo")
-    view.undo:Show()
-    view.undoTimer = C_Timer.NewTimer(UNDO_SECONDS, function()
-        view.undo:Hide()
-        view.undo.restore = nil
-    end)
+local function Deleted(row, restore)
+    local ghost = {}
+    for k, v in pairs(row) do ghost[k] = v end
+    ghost.deleted, ghost.restore = true, restore
+    table.insert(deletedRows, ghost)
 end
 
 local function ConfirmDelete(row)
     if row.kind == "Gathered" then
-        local summary = string.format("%s x%d (gathered %s)", row.item, row.qty, date("%b %d", row.time))
         local removed = addon:RemoveGathered(row.entries)
-        ShowUndo(summary, function() addon:RestoreGathered(removed) end)
+        Deleted(row, function() addon:RestoreGathered(removed) end)
         return
     end
-    local summary = string.format("%s x%d (%s)", row.item, row.qty, KIND_LONG[row.kind] or row.kind)
-    local entry, index = addon.ledger:remove(row.entry.id)
-    if addon.Refresh then addon.Refresh() end
+    local entry = addon.ledger:remove(row.entry.id)
     if entry then
-        ShowUndo(summary, function()
-            addon.ledger:restore(entry, index)
+        Deleted(row, function()
+            addon.ledger:restore(entry)
             if addon.Refresh then addon.Refresh() end
         end)
     end
+    if addon.Refresh then addon.Refresh() end
+end
+
+local function Undo(ghost)
+    for i, g in ipairs(deletedRows) do
+        if g == ghost then table.remove(deletedRows, i) break end
+    end
+    if ghost.restore then ghost.restore() end
 end
 
 local function Menu(row)
@@ -311,7 +329,9 @@ local function Create(parent)
         fill = FillRow,
         tooltip = Tooltip,
         onClick = function(row, button)
-            if button == "RightButton" then
+            if row.deleted then
+                if button ~= "RightButton" then Undo(row) end
+            elseif button == "RightButton" then
                 Menu(row)
             elseif row.kind ~= "Gathered" or row.itemID then
                 addon:OpenItem(row.item, row.itemID)
@@ -323,20 +343,9 @@ local function Create(parent)
     view.list:SetColumns(COLUMNS)
     view.footnote = UI.Text(parent, "small", "dim")
     view.footnote:SetPoint("BOTTOMLEFT", 2, 2)
-    -- "Deleted Sienna Ink x3 (sale)   Undo", for a while after a delete
-    view.undo = UI.Button(parent, "", 340, 20, function(self)
-        local restore = self.restore
-        self.restore = nil
-        self:Hide()
-        if view.undoTimer then view.undoTimer:Cancel() end
-        if restore then restore() end
-    end)
-    UI.Style(view.undo, "highlight", "borderGold")
-    view.undo:HookScript("OnLeave", function(self) self:SetBackdropBorderColor(addon:Color("borderGold")) end)
-    view.undo.label:SetTextColor(addon:Color("gold"))
-    view.undo:SetPoint("BOTTOMRIGHT", 0, 0)
-    view.undo:Hide()
-    historyView = view
+    -- Deleted entries are kept to undo until you leave History (another
+    -- tab, or the window closes)
+    parent:HookScript("OnHide", function() wipe(deletedRows) end)
     return view
 end
 
@@ -368,7 +377,16 @@ local function Refresh(view, state)
     view.list:SetEmptyText(#addon.ledger:getAll() == 0
         and "Nothing recorded yet. Purchases, sales and AH deposits are recorded as you make them."
         or "Nothing matches. Try another type, All characters, or a longer date range or All expansions at the top.")
-    view.list:SetItems(rows)
+    -- Deleted ones back in their place, newest first like the list (the
+    -- history rows are shared until data changes, so a new list)
+    local shown = rows
+    if #deletedRows > 0 then
+        shown = {}
+        for _, row in ipairs(rows) do shown[#shown + 1] = row end
+        for _, ghost in ipairs(deletedRows) do shown[#shown + 1] = ghost end
+        table.sort(shown, function(a, b) return (a.time or 0) > (b.time or 0) end)
+    end
+    view.list:SetItems(shown)
     state.loading:Done(view.list)
     view.summary:SetText(string.format("%d entr%s  ·  in %s  ·  out %s", #rows, #rows == 1 and "y" or "ies",
         addon:Colorize(Money(totals.goldIn), "profit"), addon:Colorize(Money(totals.goldOut), "loss")))
@@ -419,11 +437,13 @@ end
 
 -- What clicks do, for the window's click legend
 local function Legend()
-    return {
+    local parts = {
         { "click", "an entry: item page" },
         { "right", ": fix it (profession, free, crafting order, delete)" },
-        { "hover", ": details" },
     }
+    if #deletedRows > 0 then table.insert(parts, { "click", "a deleted one: undo" }) end
+    table.insert(parts, { "hover", ": details" })
+    return parts
 end
 
 addon:RegisterView("history", { create = Create, refresh = Refresh, reset = Reset, filters = Filters,
