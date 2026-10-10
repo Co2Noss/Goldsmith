@@ -1037,6 +1037,8 @@ local function Refresh(v, state)
     v.cheap:SetChecked(cheap)
     local search = v.search or ""
     local showList = inBags or cheap or search ~= ""
+    -- For the click legend: leaderboards or a list
+    v.showingList = showList
     for _, board in ipairs(v.boards) do board:SetShown(not showList) end
     v.list:SetShown(showList)
     v.footer:SetShown(showList)
@@ -1050,7 +1052,8 @@ local function Refresh(v, state)
             board:Set(boards[key], key == "held" and "all characters" or rangeLabel)
             loading:Done(board)
         end
-        v.note:SetText("Click an item for its page")
+        -- What clicks do is in the window's click legend (Legend below)
+        v.note:SetText("")
         return
     end
     loading:Begin(v.list)
@@ -1070,8 +1073,7 @@ local function Refresh(v, state)
         v.list:SetColumnsAndItems(CHEAP_COLUMNS, items)
         v.footer:SetText(string.format("%s %d%%+ below usual. Usual = median price over the saved days (Auctionator scans).",
             Plural(#items, "material"), addon:Setting("dealPercent")))
-        v.note:SetText(state.profession ~= "All" and ("Only " .. state.profession .. ", click a column to sort")
-            or "Click a column to sort")
+        v.note:SetText(state.profession ~= "All" and ("Only " .. state.profession) or "")
     elseif inBags then
         local stock = addon:GetStockValue(state.profession)
         local items, value = {}, 0
@@ -1092,7 +1094,7 @@ local function Refresh(v, state)
         v.list:SetEmptyText(search ~= "" and "Nothing you hold matches." or "Nothing tracked in your bags yet.")
         v.list:SetColumnsAndItems(addon:AvailableColumns(STOCK_COLUMNS), items)
         v.footer:SetText(string.format("%s in %s, all characters and the warband bank", Money(value), Plural(#items, "item")))
-        v.note:SetText("Click a column to sort")
+        v.note:SetText("")
     else
         local results = addon:SearchItems(search, state.profession, SEARCH_LIMIT)
         v.listMode = "search"
@@ -1104,8 +1106,7 @@ local function Refresh(v, state)
         v.list:SetColumnsAndItems(addon:AvailableColumns(SEARCH_COLUMNS), results)
         v.footer:SetText(#results >= SEARCH_LIMIT and string.format("First %d matches. Type more to narrow it down.", SEARCH_LIMIT)
             or (#results == 1 and "1 match" or (#results .. " matches")))
-        v.note:SetText(state.profession ~= "All" and ("Only " .. state.profession .. ", click a column to sort")
-            or "Click a column to sort")
+        v.note:SetText(state.profession ~= "All" and ("Only " .. state.profession) or "")
     end
     loading:Done(v.list)
 end
@@ -1133,6 +1134,29 @@ local function Filters(v)
     return list
 end
 
-addon:RegisterView("items", { create = Create, refresh = Refresh, reset = Reset, filters = Filters, ownLoading = true })
+-- What clicks do on the screen showing, for the window's click legend
+local function Legend(v)
+    if v.page.item then
+        return {
+            { "click", "a quality: its prices" },
+            { "hover", "a tile or the chart: details" },
+            { "shift", "an item in your bags: look it up here" },
+        }
+    elseif v.showingList then
+        return {
+            { "click", "an item: its page" },
+            { "click", "a column: sort" },
+            { "hover", ": details" },
+        }
+    end
+    return {
+        { "click", "an item: its page" },
+        { "shift", "an item in your bags: look it up here" },
+        { "hover", ": details" },
+    }
+end
+
+addon:RegisterView("items", { create = Create, refresh = Refresh, reset = Reset, filters = Filters,
+    legend = Legend, ownLoading = true })
 
 _G.Goldsmith = addon

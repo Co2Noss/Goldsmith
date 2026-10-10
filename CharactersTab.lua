@@ -376,7 +376,7 @@ local function Create(parent)
     title:SetText("To do by character")
     view.note = UI.Text(parent, "label", "dim")
     view.note:SetPoint("LEFT", title, "RIGHT", 10, -1)
-    view.note:SetText("most profit first; click a line to plan it, right-click a card for options")
+    view.note:SetText("most profit first")
     view.page = UI.Text(parent, "label", "dim", "RIGHT")
     view.page:SetPoint("TOPRIGHT", 0, -6)
 
@@ -431,6 +431,15 @@ end
 -- Clicking the Characters tab again: back to the first cards
 local function Reset(view) view.offset = 0 end
 
-addon:RegisterView("characters", { create = Create, refresh = Refresh, reset = Reset })
+-- What clicks do, for the window's click legend
+local function Legend()
+    return {
+        { "click", "a to-do: its plan" },
+        { "right", "a card: exclude or remove the character" },
+        { "hover", "a card: its to-dos and cooldowns" },
+    }
+end
+
+addon:RegisterView("characters", { create = Create, refresh = Refresh, reset = Reset, legend = Legend })
 
 _G.Goldsmith = addon

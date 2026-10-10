@@ -2895,10 +2895,10 @@ local function Refresh(v, state)
         for _, item in ipairs(items) do
             if item.info.partial then partial = true break end
         end
+        -- What clicks do is in the window's click legend (Legend below)
         v.footnote:SetText((unlearnedMode
-            and "Recipes you haven't learned, costed with your skill today. Hover one for where to learn it, click for its page."
-            or "Hover a craft for how its cost is worked out, click it to plan, right-click to queue it, shift-click for its page (or the AH search).")
-            .. (partial and "   + some material costs unknown,  * profit is at most this" or ""))
+            and "Recipes you haven't learned, costed with your skill today." or "")
+            .. (partial and ((unlearnedMode and "   " or "") .. "+ some material costs unknown,  * profit is at most this") or ""))
     end
 end
 
@@ -2929,7 +2929,33 @@ local function Filters(v)
     return list
 end
 
-addon:RegisterView("crafts", { create = Create, refresh = Refresh, reset = Reset, filters = Filters, ownLoading = true })
+-- What clicks do on the screen showing, for the window's click legend.
+-- The thing clicked is named once, in the first part, to keep it on one
+-- line.
+local function Legend(v)
+    if v.plan.plan then
+        return {
+            { "click", "a material: its page" },
+            { "right", ": choose buy, craft or mill" },
+            { "shift", ": search the AH" },
+            { "hover", ": how it's worked out" },
+        }
+    elseif v.salvage.target then
+        return { { "click", "an output: its page" }, { "hover", ": how it's worked out" } }
+    elseif not v.focus and CraftsShow() == "unlearned" then
+        return { { "click", "a recipe: its item's page" }, { "hover", ": where to learn it" } }
+    end
+    return {
+        { "click", "a craft: plan it" },
+        { "right", ": queue or ignore" },
+        { "shift", ": item page" },
+        { "hover", ": how it's worked out" },
+        { "ctrl", "in a hover: explain" },
+    }
+end
+
+addon:RegisterView("crafts", { create = Create, refresh = Refresh, reset = Reset, filters = Filters,
+    legend = Legend, ownLoading = true })
 
 -- Keep the planner's Craft button current while it's showing: the
 -- profession opening or closing, bags changing as you craft or buy,

@@ -898,6 +898,16 @@ local function Refresh(view, state)
     loading:Done(view.professionsPanel)
 end
 
-addon:RegisterView("overview", { create = Create, refresh = Refresh, ownLoading = true })
+-- What clicks do, for the window's click legend
+local function Legend()
+    return {
+        { "click", "a suggestion: its plan" },
+        { "click", "a profession: show only it" },
+        { "hover", "a number: how it's worked out" },
+        { "ctrl", "in a hover: explain" },
+    }
+end
+
+addon:RegisterView("overview", { create = Create, refresh = Refresh, legend = Legend, ownLoading = true })
 
 _G.Goldsmith = addon

@@ -14,9 +14,12 @@ local UI = addon.UI
 -- profession ("All" or one), date range key and expansions (see
 -- IsExpansionShown).
 
-local WIDTH, HEIGHT = 900, 710
--- Height left for a tab's content (header, tabs and padding taken off)
-addon.CONTENT_HEIGHT = HEIGHT - 114
+-- The click legend along the bottom edge (see ClickLegend); the window is
+-- that much taller than before it, so screens keep their size
+local LEGEND_HEIGHT = 18
+local WIDTH, HEIGHT = 900, 710 + LEGEND_HEIGHT
+-- Height left for a tab's content (header, tabs, legend and padding taken off)
+addon.CONTENT_HEIGHT = HEIGHT - 114 - LEGEND_HEIGHT
 local HEADER_HEIGHT = 48
 local TAB_HEIGHT = 32
 
@@ -34,6 +37,9 @@ local TABS = {
 --                 filters = function(view) (optional: what narrows the tab
 --                 now, a list of { label, clear = function }, for the
 --                 Filtered marker),
+--                 legend = function(view) (optional: what clicks do on the
+--                 screen showing now, a list of { kind, text }, see
+--                 ClickLegendText),
 --                 ownLoading = true (optional: the view marks its own parts
 --                 as loading; otherwise the whole screen is covered) }
 -- state = { profession, range, since, setProfession(prof), loading (see
@@ -42,6 +48,37 @@ local views = {}
 
 function addon:RegisterView(key, view)
     views[key] = view
+end
+
+-- The click legend: what clicks do on this screen, readable without
+-- hovering anything (design review, 2026-10-09). Each kind in the color its
+-- hint has at the end of hovers, so the legend teaches the hover colors.
+-- parts: { { "click" | "right" | "shift" | "hover" | "ctrl", text }, ... }
+-- -> "Click a craft: plan it  ·  Right-click: queue or ignore"
+local LEGEND_KINDS = {
+    click = { "Click", "hint" },
+    right = { "Right-click", "hintRight" },
+    shift = { "Shift-click", "hintShift" },
+    hover = { "Hover", "text" },
+    ctrl  = { "Hold Ctrl", "text" },
+}
+function addon:ClickLegendText(parts)
+    local out = {}
+    for _, part in ipairs(parts or {}) do
+        local kind = LEGEND_KINDS[part[1]]
+        if kind then
+            -- "Click a craft: plan it": the label, then the rest as written
+            local text = part[2]
+            local head, tail = text:match("^(.-):%s*(.*)$")
+            if head then
+                table.insert(out, addon:Colorize(kind[1] .. (head ~= "" and (" " .. head) or "") .. ":", kind[2])
+                    .. " " .. addon:Colorize(tail, "muted"))
+            else
+                table.insert(out, addon:Colorize(kind[1] .. ":", kind[2]) .. " " .. addon:Colorize(text, "muted"))
+            end
+        end
+    end
+    return table.concat(out, addon:Colorize("  ·  ", "dim"))
 end
 
 -- Where AH prices come from, for the header (see GetAHPriceInfo and the
@@ -468,7 +505,19 @@ function addon:CreateWindow()
     -- Screens
     local content = CreateFrame("Frame", nil, frame)
     content:SetPoint("TOPLEFT", tabArea, "BOTTOMLEFT", 20, -16)
-    content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 16)
+    content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 16 + LEGEND_HEIGHT)
+
+    -- What clicks do on the screen showing (view.legend), along the bottom
+    -- edge in the same place on every tab
+    local legendLine = UI.Line(frame, "border")
+    legendLine:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 1, LEGEND_HEIGHT + 8)
+    legendLine:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, LEGEND_HEIGHT + 8)
+    legendLine:SetHeight(1)
+    local legend = UI.Text(frame, "small", "muted")
+    legend:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 20, 8)
+    legend:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, 8)
+    legend:SetJustifyH("LEFT")
+    legend:SetWordWrap(false)
 
     local created = {} -- key -> { frame, view, def }
     -- For the tour (Tour.lua): a tab's screen, once it has been opened
@@ -512,6 +561,11 @@ function addon:CreateWindow()
         return list
     end
     UpdateFilterChip = function()
+        -- The click legend changes with the screen too (a plan, an item's
+        -- page), so it's redrawn at the same moments
+        local screen = created[ui.tab]
+        legend:SetText(screen and screen.def.legend
+            and addon:ClickLegendText(screen.def.legend(screen.view)) or "")
         local filters = ActiveFilters()
         filterChip:SetShown(#filters > 0)
         if #filters > 0 then

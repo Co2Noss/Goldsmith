@@ -398,6 +398,16 @@ local function Filters(view)
     return list
 end
 
-addon:RegisterView("history", { create = Create, refresh = Refresh, reset = Reset, filters = Filters, ownLoading = true })
+-- What clicks do, for the window's click legend
+local function Legend()
+    return {
+        { "click", "an entry: item page" },
+        { "right", ": fix it (profession, free, crafting order, delete)" },
+        { "hover", ": details" },
+    }
+end
+
+addon:RegisterView("history", { create = Create, refresh = Refresh, reset = Reset, filters = Filters,
+    legend = Legend, ownLoading = true })
 
 _G.Goldsmith = addon

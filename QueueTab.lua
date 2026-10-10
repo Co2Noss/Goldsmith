@@ -418,6 +418,15 @@ local function Reset(v)
     v.list:ScrollToTop()
 end
 
-addon:RegisterView("queue", { create = Create, refresh = Refresh, reset = Reset })
+-- What clicks do, for the window's click legend
+local function Legend()
+    return {
+        { "click", "an entry: its plan (a batch: how many)" },
+        { "right", ": move up or down, or remove" },
+        { "hover", ": costs and what's left to make" },
+    }
+end
+
+addon:RegisterView("queue", { create = Create, refresh = Refresh, reset = Reset, legend = Legend })
 
 _G.Goldsmith = addon
