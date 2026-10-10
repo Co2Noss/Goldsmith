@@ -196,6 +196,15 @@ local function ConcentrationAction(conc)
             math.floor(first.points + 0.5), OnWho(best.key), addon:Colorize(Signed(first.profit), "profit")),
         tooltip = function(tooltip)
             tooltip:AddLine(string.format("Best use of %s's %d concentration", best.name, best.current), 1, 1, 1)
+            -- What to expect: what's left, and when it's full again (it comes
+            -- back a point every 5.76 minutes, 250 a day)
+            if best.used and best.max then
+                local left = math.max(math.floor(best.current - best.used), 0)
+                local hours = (best.max - left) * 5.76 / 60
+                tooltip:AddLine(string.format("Leaves %d; full again in about %s", left,
+                    hours >= 48 and string.format("%.1f days", hours / 24) or string.format("%.0f hours", math.max(hours, 1))),
+                    0.6, 0.6, 0.6, true)
+            end
             for _, p in ipairs(best.plan) do
                 tooltip:AddDoubleLine(string.format("%dx %s", p.crafts,
                     ItemText(p.row.itemID, p.recipe.outputName, p.row.tier, p.tierCount)),
@@ -289,6 +298,13 @@ local function CraftsAction(crafts, prof)
                     .. OnWho(c.charKey), 1, 0.82, 0)
                 tooltip:AddDoubleLine("Profit each", string.format("%s (%.0f%% ROI)", Signed(c.profit), c.margin or 0),
                     0.8, 0.8, 0.8, 0.37, 0.81, 0.48)
+                -- What to expect before crafting: how many, the gold, and
+                -- why that many (your batches' pace)
+                if c.make and c.make > 0 then
+                    tooltip:AddDoubleLine("Make", string.format("%d: about %s", c.make, Signed(c.profit * c.make)),
+                        0.8, 0.8, 0.8, 0.37, 0.81, 0.48)
+                    if c.makeReason then tooltip:AddLine("    " .. c.makeReason, 0.6, 0.6, 0.6, true) end
+                end
                 if c.demand then
                     local r, g, b = addon:Color(addon:DemandColor(c.demand, c.itemID))
                     tooltip:AddDoubleLine("Sold per day", addon:FormatDemand(c.demand), 0.8, 0.8, 0.8, r, g, b)
