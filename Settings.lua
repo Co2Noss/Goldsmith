@@ -464,7 +464,7 @@ local HELP = {
     minROI = {
         "Worth crafting at",
         "The ROI (profit as a share of what the craft costs) a craft needs to count as worth doing.",
-        "Used by Profitable only on the Crafts tab and by Best crafts right now on the Overview.",
+        "Used by Recommended on the Crafts tab and by Best crafts right now on the Overview.",
         "Higher leaves room for undercuts and slow sales; 15% is a good start.",
     },
     dealPercent = {
@@ -640,7 +640,7 @@ function addon:CreateSettingsPanel(parent)
 
     rows.costMode = ChoiceRow(panel, "costMode", "Show cost as", "Estimated uses your stats; worst case assumes no procs.")
     rows.priceSource = ChoiceRow(panel, "priceSource", "Price source", "Where AH prices come from when both Auctionator and TSM have one.")
-    rows.minROI = ChoiceRow(panel, "minROI", "Worth crafting at", "The ROI a craft needs for Profitable only and Best crafts.")
+    rows.minROI = ChoiceRow(panel, "minROI", "Worth crafting at", "The ROI a craft needs for Recommended and Best crafts.")
     rows.dealPercent = ChoiceRow(panel, "dealPercent", "Cheap materials", "How far below usual a material's price counts as cheap.")
     rows.heldDays = ChoiceRow(panel, "heldDays", "Held too long", "Days unsold before a crafted item is flagged.")
     rows.keepDays = Row(panel, "keepDays", "Keep history for", "How long purchases, sales and deposits are kept.")
@@ -791,7 +791,7 @@ local HELP_SECTIONS = {
     -- One line per tab, its name in the text color (Theme.lua loads first)
     { "The tabs", table.concat({
         addon:Colorize("Overview", "text") .. ": how you're doing and what to do next.",
-        addon:Colorize("Crafts", "text") .. ": what you can make, with its cost, profit and how well it sells. Show picks Recommended, Profitable, All crafts or Not learned yet (recipes worth going to learn), and can hide gear. Click a craft for a shopping plan.",
+        addon:Colorize("Crafts", "text") .. ": what you can make, with its cost, profit and how well it sells. Show picks Recommended, All crafts or Not learned yet (recipes worth going to learn), and can hide gear. Click a craft for a shopping plan.",
         addon:Colorize("Queue", "text") .. ": crafts lined up to make, with one shopping list and a button that does the next step.",
         addon:Colorize("Items", "text") .. ": any item's page, and In my bags for everything you hold.",
         addon:Colorize("History", "text") .. ": every purchase, sale, craft and deposit; right-click an entry to fix it.",

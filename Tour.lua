@@ -64,7 +64,7 @@ local STEPS = {
           return view and view.list
       end },
     { tab = "crafts", title = "Show",
-      text = "Recommended (solid bets), Profitable, All crafts, or Not learned yet: recipes worth going to learn. It can hide gear too.",
+      text = "Recommended (solid bets), All crafts, or Not learned yet: recipes worth going to learn. It can hide gear too.",
       target = function()
           local view = Screen("crafts")
           return view and view.show

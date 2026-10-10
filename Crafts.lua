@@ -2633,19 +2633,24 @@ local function SalvageMenu(item)
 end
 
 -- The Show filter's choices (ui.craftsShow)
+-- Profitable was dropped (design review trimming, user 2026-10-10): it sat
+-- between Recommended and All crafts
 local SHOW_CHOICES = {
     { value = "all", label = "All crafts" },
-    { value = "profitable", label = "Profitable" },
     { value = "recommended", label = "Recommended" },
     -- Recipes you could learn (GetUnlearnedRows)
     { value = "unlearned", label = "Not learned yet" },
 }
 
--- The Show filter, with the old Profitable only checkbox carried over.
--- Recommended until changed (user, 2026-10-07).
+-- The Show filter. Recommended until changed (user, 2026-10-07); a saved
+-- Profitable (or the old Profitable only checkbox) becomes All crafts, the
+-- wider of the two it sat between.
 local function CraftsShow()
     local ui = GoldsmithDB.ui2
-    return ui.craftsShow or (ui.profitableOnly and "profitable") or "recommended"
+    if ui.craftsShow == "profitable" or (not ui.craftsShow and ui.profitableOnly) then
+        ui.craftsShow, ui.profitableOnly = "all", nil
+    end
+    return ui.craftsShow or "recommended"
 end
 
 local function ShowLabel(value)
@@ -2702,7 +2707,7 @@ local function Create(parent)
         addon.RefreshWindow()
     end)
 
-    -- Search by craft or salvage name. Ignores the expansion and Profitable
+    -- Search by craft or salvage name. Ignores the expansion and Show
     -- only filters, so whatever you type for is found. Waits for a pause in
     -- typing: a search costs every matching craft in every expansion.
     view.search = ""
@@ -2759,7 +2764,6 @@ local function Create(parent)
         local minROI = addon:Setting("minROI")
         Line(tooltip, "Recommended", "profitable, and it sells")
         Line(tooltip, "Not learned yet", "recipes to go learn, and what they'd make")
-        Line(tooltip, "Profitable", minROI > 0 and string.format("%d%%+ ROI at AH prices", minROI) or "makes gold at AH prices")
         Line(tooltip, "All crafts", "everything you can make")
         Line(tooltip, "Show ignored", "adds your ignored crafts")
         tooltip:AddLine(" ")
@@ -3010,7 +3014,7 @@ local function Refresh(v, state)
             and "No craft matches. " .. (addon.char.name or "This character") .. " may not know it: untick Only " .. (addon.char.name or "me") .. ", or pick All professions at the top."
             or "No craft matches. Try All professions at the top, or open the profession that makes it so Goldsmith can load the recipe.")
     elseif show == "recommended" then
-        v.list:SetEmptyText("Nothing to recommend right now: no craft both makes a profit and sells. Set Show to Profitable or All crafts, or pick more expansions at the top.")
+        v.list:SetEmptyText("Nothing to recommend right now: no craft both makes a profit and sells. Set Show to All crafts, or pick more expansions at the top.")
     else
         v.list:SetEmptyText(ui.craftsOnlyMine
             and "No crafts match. This character may not know these recipes: untick Only " .. (addon.char.name or "me") .. ", pick All expansions at the top, or set Show to All crafts."
