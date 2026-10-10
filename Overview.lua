@@ -138,7 +138,18 @@ local function FillConcentrationTile(tile, conc)
         tile.tooltip = nil
         return
     end
-    local note = conc.gain > 0 and ("worth " .. Signed(conc.gain) .. " right now") or "nothing worth it right now"
+    -- Crafts worth concentration that were held back (you hold some unsold):
+    -- said here too, so "nothing" always comes with why (design review)
+    local heldBack = 0
+    for _, row in ipairs(conc.rows) do heldBack = heldBack + #(row.capped or {}) end
+    local note
+    if conc.gain > 0 then
+        note = "worth " .. Signed(conc.gain) .. " extra right now"
+    elseif heldBack > 0 then
+        note = string.format("nothing planned: %d held back (hover)", heldBack)
+    else
+        note = "nothing worth it right now"
+    end
     tile:Set("Concentration", string.format("%d / %d", conc.current, conc.max), "conc", note)
     tile.tooltip = function(tooltip)
         tooltip:AddLine("Concentration on all characters", 1, 1, 1)
@@ -148,9 +159,15 @@ local function FillConcentrationTile(tile, conc)
                 string.format("%d / %d, %s", row.current, row.max, HoursText(row.minutesToFull)),
                 0.9, 0.9, 0.9, 0.91, 0.76, 0.35)
             if row.gain > 0 then
-                tooltip:AddDoubleLine("    worth", Signed(row.gain), 0.6, 0.6, 0.6, 0.37, 0.81, 0.48)
+                tooltip:AddDoubleLine("    worth", Signed(row.gain) .. " extra", 0.6, 0.6, 0.6, 0.37, 0.81, 0.48)
+            end
+            for _, c in ipairs(row.capped or {}) do
+                tooltip:AddDoubleLine("    held back: " .. ItemText(c.row.itemID, c.recipe.outputName, c.row.tier, c.tierCount),
+                    addon:FormatMoney(c.row.concentrationValue) .. " a point", 0.6, 0.6, 0.6, 0.91, 0.76, 0.35)
+                tooltip:AddLine("        " .. addon:HeldBackReason(c), 0.6, 0.6, 0.6, true)
             end
         end
+        addon:Explain(tooltip, "Extra = profit on top of crafting the same things without concentration.", 0.6, 0.6, 0.6, true)
         addon:Explain(tooltip, "Alts' concentration is worked out from when you last logged in on them.", 0.6, 0.6, 0.6, true)
     end
 end

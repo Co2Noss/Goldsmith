@@ -368,6 +368,20 @@ local function CachedPlan(key, profession, current, nearFull)
     return cached.plan, cached.used, cached.gain, cached.capped
 end
 
+-- Why a craft worth concentration was held back (a row's capped entry):
+-- "You hold 2 unsold: more once they sell", or (TSM) "The region sells
+-- about 1 every 3 days (TSM region)"
+function addon:HeldBackReason(c)
+    if c.held and c.held >= 1 then
+        return string.format("You hold %d unsold: more once %s", c.held, c.held == 1 and "it sells" or "they sell")
+    end
+    local source = c.demandSource and (" (" .. c.demandSource .. ")") or ""
+    if c.demand and c.demand > 0 and c.demand < 1 then
+        return string.format("The region sells about 1 every %d days%s", math.floor(1 / c.demand + 0.5), source)
+    end
+    return string.format("The region sells under 1 a day%s", source)
+end
+
 function addon:GetConcentrationOverview(prof)
     local result = { current = 0, max = 0, gain = 0, rows = {} }
     for _, entry in ipairs(addon:GetCharacters()) do

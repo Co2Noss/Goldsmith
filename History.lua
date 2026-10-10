@@ -63,8 +63,10 @@ local function FillRow(r, row)
     c.item:SetText(ItemText(row))
     c.qty:SetText(tostring(row.qty or ""))
     if row.gold then
-        -- No + or -: white is money in, red money out
-        c.gold:SetText(Money(math.abs(row.gold)))
+        -- White is money in, red and a minus money out: the sign too, so
+        -- it reads without telling red from green (design review, user
+        -- 2026-10-10: minus on losses only)
+        c.gold:SetText((row.gold < 0 and "-" or "") .. Money(math.abs(row.gold)))
         c.gold:SetTextColor(addon:Color(row.gold >= 0 and "text" or "loss"))
     elseif row.worth and row.worth > 0 then
         -- Gathered: what it's worth, grey because no gold moved
@@ -75,9 +77,10 @@ local function FillRow(r, row)
         c.gold:SetTextColor(addon:Color("dim"))
     end
     if row.profit then
-        -- No + or -: green is a profit, red a loss. ~ marks an estimated
+        -- Green is a profit, red and a minus a loss. ~ marks an estimated
         -- cost (see the hover)
-        c.profit:SetText((row.profitEstimated and "~" or "") .. Money(math.abs(row.profit)) .. (row.partial and "*" or ""))
+        c.profit:SetText((row.profitEstimated and "~" or "") .. (row.profit < 0 and "-" or "")
+            .. Money(math.abs(row.profit)) .. (row.partial and "*" or ""))
         c.profit:SetTextColor(addon:Color(addon:MoneyColor(row.profit)))
     end
 end

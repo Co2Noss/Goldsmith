@@ -2396,17 +2396,9 @@ local function CappedConcentration(conc)
     return list
 end
 
--- Why one was held back: "You hold 2 unsold: more once they sell", or
--- (TSM) "The region sells about 1 every 3 days (TSM region)"
+-- Why one was held back (Insights.lua, shared with the Overview)
 local function CappedReason(c)
-    if c.held and c.held >= 1 then
-        return string.format("You hold %d unsold: more once %s", c.held, c.held == 1 and "it sells" or "they sell")
-    end
-    local source = c.demandSource and (" (" .. c.demandSource .. ")") or ""
-    if c.demand and c.demand > 0 and c.demand < 1 then
-        return string.format("The region sells about 1 every %d days%s", math.floor(1 / c.demand + 0.5), source)
-    end
-    return string.format("The region sells under 1 a day%s", source)
+    return addon:HeldBackReason(c)
 end
 
 local function CreateBudget(parent)
