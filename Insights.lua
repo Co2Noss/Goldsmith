@@ -72,7 +72,7 @@ function addon:WhyNotRecommended(recipe, row, shownExpansions)
     end
     local snoozed, untilTime = addon:IsSnoozed(recipe.outputItemID)
     if snoozed then
-        return string.format("You hid it from suggestions (Not this) until %s. "N hidden" by Do this next brings it back sooner.",
+        return string.format("You hid it from suggestions (Not this) until %s. 'N hidden' by Do this next brings it back sooner.",
             date("%a %H:%M", untilTime))
     end
     local itemID = row.itemID or recipe.outputItemID
