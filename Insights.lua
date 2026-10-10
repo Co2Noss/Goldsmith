@@ -297,7 +297,9 @@ end
 -- each character's current concentration is worth spent the best way (see
 -- PlanConcentration), using that character's stats.
 -- Returns { current, max, gain, rows = { { key, name, profession, current,
--- max, minutesToFull, updated, plan, used, gain } } (most gain first) }.
+-- max, minutesToFull, updated, plan, used, gain, capped } } (most gain
+-- first) }. capped: crafts worth concentration that their sales left out
+-- (see PlanConcentration).
 --
 -- Plans are cached until data changes, per character, profession and
 -- amount of concentration (which only goes up a point every few minutes).
@@ -352,12 +354,12 @@ local function CachedPlan(key, profession, current, nearFull)
             if (row.margin or 0) < minROI then return false end
             return IsRecommendable(recipe, row)
         end
-        local plan, used, gain = addon:WithCharacter(key, addon.PlanConcentration, addon,
+        local plan, used, gain, capped = addon:WithCharacter(key, addon.PlanConcentration, addon,
             profession, current, Accept)
-        cached = { plan = plan, used = used, gain = gain }
+        cached = { plan = plan, used = used, gain = gain, capped = capped }
         store[id] = cached
     end
-    return cached.plan, cached.used, cached.gain
+    return cached.plan, cached.used, cached.gain, cached.capped
 end
 
 function addon:GetConcentrationOverview(prof)
@@ -378,12 +380,12 @@ function addon:GetConcentrationOverview(prof)
                     current, max, minutesToFull, updated = addon:GetCharacterConcentration(entry.key, profession)
                 end
                 if current and max and max > 0 then
-                    local plan, used, gain = CachedPlan(entry.key, profession, math.floor(current),
+                    local plan, used, gain, capped = CachedPlan(entry.key, profession, math.floor(current),
                         NearFull(current, max, minutesToFull))
                     table.insert(result.rows, {
                         key = entry.key, name = entry.data.name, profession = profession,
                         current = current, max = max, minutesToFull = minutesToFull, updated = updated,
-                        plan = plan, used = used, gain = gain or 0,
+                        plan = plan, used = used, gain = gain or 0, capped = capped or {},
                     })
                     result.current = result.current + current
                     result.max = result.max + max

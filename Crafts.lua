@@ -2373,6 +2373,34 @@ local function BestConcentration(conc)
     return best
 end
 
+-- Crafts worth concentration that their sales left out of every plan
+-- (GetConcentrationOverview's capped), with the character's name, most
+-- gold per point first
+local function CappedConcentration(conc)
+    local list = {}
+    for _, row in ipairs(conc.rows) do
+        for _, c in ipairs(row.capped or {}) do
+            table.insert(list, { recipe = c.recipe, row = c.row, tierCount = c.tierCount, demand = c.demand,
+                demandSource = c.demandSource, held = c.held, name = row.name })
+        end
+    end
+    table.sort(list, function(a, b) return a.row.concentrationValue > b.row.concentrationValue end)
+    return list
+end
+
+-- Why one was held back: "you hold 2, more than a day's sales" or "sells
+-- about 1 every 14 days (your sales)"
+local function CappedReason(c)
+    local source = c.demandSource and (" (" .. c.demandSource .. ")") or ""
+    if c.held and c.held >= 1 then
+        return string.format("You hold %d, about %s a day sell%s", c.held, addon:FormatDemand(c.demand), source)
+    end
+    if c.demand and c.demand > 0 and c.demand < 1 then
+        return string.format("Sells about 1 every %d days%s", math.floor(1 / c.demand + 0.5), source)
+    end
+    return string.format("Sells about %s a day%s", addon:FormatDemand(c.demand), source)
+end
+
 local function CreateBudget(parent)
     local bar = CreateFrame("Button", nil, parent, "BackdropTemplate")
     UI.Style(bar, "highlight", "borderGold")
@@ -2416,7 +2444,17 @@ local function CreateBudget(parent)
                 addon:Colorize(Signed(first.gain) .. " extra", "profit")))
             bar.best:SetTextColor(addon:Color("text"))
         else
-            bar.best:SetText("Nothing worth concentration right now.")
+            -- Crafts worth concentration that their sales left out: say so,
+            -- instead of "nothing" while the list shows good g/conc rows
+            -- (design review follow-up, 2026-10-09)
+            local capped = CappedConcentration(conc)
+            if #capped > 0 then
+                local first = capped[1]
+                bar.best:SetText(string.format("Nothing planned: %s%s held back by sales (hover)",
+                    first.recipe.outputName, #capped > 1 and string.format(" +%d", #capped - 1) or ""))
+            else
+                bar.best:SetText("Nothing worth concentration right now.")
+            end
             bar.best:SetTextColor(addon:Color("muted"))
         end
     end
@@ -2441,6 +2479,23 @@ local function CreateBudget(parent)
                     string.format("%d conc, %s", p.points, Signed(p.gain)), "profit")
                 if p.row.description then Note(tooltip, "        " .. p.row.description) end
             end
+        end
+        -- Worth concentration, but its sales leave no room to make more
+        local capped = CappedConcentration(conc)
+        if #capped > 0 then
+            tooltip:AddLine(" ")
+            tooltip:AddLine("Worth it, but held back by sales", 1, 1, 1)
+            for i, c in ipairs(capped) do
+                if i > 6 then
+                    Note(tooltip, string.format("    and %d more", #capped - 6))
+                    break
+                end
+                local tier = c.row.tier and (addon:TierIconText(c.row.tier, c.tierCount) .. " ") or ""
+                Line(tooltip, string.format("    %s%s (%s)", tier, c.recipe.outputName, c.name),
+                    string.format("%s a point", Money(c.row.concentrationValue)), "gold")
+                Note(tooltip, "        " .. CappedReason(c))
+            end
+            Why(tooltip, "Goldsmith only plans about a day of an item's sales, less what you already hold, so nothing sits unsold.")
         end
         Why(tooltip, "Mixes of lower and higher quality materials are compared for each craft, to get the most gold from your concentration.", "gold")
         Why(tooltip, "Extra = profit on top of crafting the same thing without concentration. Each craft is capped at about a day of that item's sales.")

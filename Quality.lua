@@ -778,8 +778,10 @@ end
 -- Starting a craft needs its full concentration cost; ingenuity refunds
 -- some afterwards, so the points counted are the expected cost.
 -- Returns { { recipe, row, tierCount, crafts, points, gain, profit } }
--- (most gain first), points used, and total extra profit from
--- concentrating.
+-- (most gain first), points used, total extra profit from concentrating,
+-- and what passed `accept` but was capped to nothing by its sales (a day's
+-- worth less what you hold): { { recipe, row, tierCount, demand, held } },
+-- most gold per point first, so the Crafts tab can say why.
 local MAX_IMPROVEMENTS = 30
 local MAX_CRAFTS_TRIED = 200
 
@@ -787,7 +789,7 @@ function addon:PlanConcentration(profession, budget, accept)
     -- Only recipes that spend this concentration (each expansion's version
     -- of a profession has its own)
     local currencyID = GoldsmithDB.concentrationCurrency and GoldsmithDB.concentrationCurrency[profession]
-    local found, caps = {}, {}
+    local found, caps, skipped = {}, {}, {}
     -- A list, since the work may wait for a frame between recipes
     for _, recipeID in ipairs(addon:Keys(GoldsmithDB.recipes)) do
         addon:Yield()
@@ -811,9 +813,18 @@ function addon:PlanConcentration(profession, budget, accept)
                         local demand = e.demand or (e.itemID and addon:GetDemand(e.itemID, recipe.outputName))
                         -- Less what you already hold (bags, banks, AH listings): an
                         -- item still sitting unsold isn't made again until it sells
-                        local left = demand and (demand - (e.itemID and addon:GetHeld(e.itemID, e.tier) or 0))
+                        local held = e.itemID and addon:GetHeld(e.itemID, e.tier) or 0
+                        local left = demand and (demand - held)
                         if left and left < 1 then
                             caps[capKey] = 0
+                            -- Worth concentration but capped: kept so the
+                            -- Crafts tab can say why nothing is planned
+                            local prev = skipped[capKey]
+                            if not prev or e.concentrationValue > prev.row.concentrationValue then
+                                local _, source = addon:GetDemand(e.itemID, recipe.outputName)
+                                skipped[capKey] = { recipe = recipe, row = e, tierCount = e.tierCount,
+                                    demand = demand, demandSource = e.demandSource or source, held = held }
+                            end
                         else
                             caps[capKey] = (left and e.outputPerCraft > 0)
                                 and math.max(math.floor(left / e.outputPerCraft), 1) or math.huge
@@ -959,7 +970,10 @@ function addon:PlanConcentration(profession, budget, accept)
         end
     end
     table.sort(plan, function(a, b) return a.gain > b.gain end)
-    return plan, budget - left, totalGain
+    local capped = {}
+    for _, s in pairs(skipped) do table.insert(capped, s) end
+    table.sort(capped, function(a, b) return a.row.concentrationValue > b.row.concentrationValue end)
+    return plan, budget - left, totalGain, capped
 end
 
 -- Inline quality icon for a tier, e.g. the silver/gold icon
