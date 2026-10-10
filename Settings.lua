@@ -413,7 +413,7 @@ local CHOICES = {
         { value = "off", label = "Off" },
     },
     chat = {
-        { value = "all", label = "Everything (recommended)" },
+        { value = "all", label = "On (recommended)" },
         { value = "off", label = "Off" },
     },
 }
@@ -482,7 +482,7 @@ local HELP = {
     },
     chat = {
         "Chat messages",
-        "Everything: each sale, purchase and AH deposit, saved recipes and milling results. Handy for checking what Goldsmith records.",
+        "On: each sale, purchase and AH deposit, saved recipes and milling results. Handy for checking what Goldsmith records.",
         "Off: none. Everything is still recorded; see the History tab. Answers to /gsm commands always show.",
     },
     characters = {
