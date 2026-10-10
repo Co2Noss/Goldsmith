@@ -157,39 +157,41 @@ local function Tooltip(tooltip, row)
     addon:RightClickHint(tooltip, "Right-click for more")
 end
 
-StaticPopupDialogs["GOLDSMITH_HISTORY_DELETE"] = {
-    text = "Delete this entry?\n\n%s",
-    button1 = YES,
-    button2 = NO,
-    OnAccept = function(_, id)
-        addon.ledger:remove(id)
-        if addon.Refresh then addon.Refresh() end
-    end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
+-- Deleting: done at once, with an Undo button for UNDO_SECONDS instead of
+-- an "Are you sure?" people click through without reading (design review,
+-- 2026-10-10). historyView is set in Create.
+local UNDO_SECONDS = 30
+local historyView
 
-StaticPopupDialogs["GOLDSMITH_HISTORY_DELETE_GATHERED"] = {
-    text = "Delete these gathered materials?\n\n%s\n\nCosts will treat them as if you'd bought them.",
-    button1 = YES,
-    button2 = NO,
-    OnAccept = function(_, entries) addon:RemoveGathered(entries) end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
+local function ShowUndo(text, restore)
+    local view = historyView
+    if not view then return end
+    if view.undoTimer then view.undoTimer:Cancel() end
+    view.undo.restore = restore
+    view.undo:SetLabel("Deleted " .. text .. "   Undo")
+    view.undo:Show()
+    view.undoTimer = C_Timer.NewTimer(UNDO_SECONDS, function()
+        view.undo:Hide()
+        view.undo.restore = nil
+    end)
+end
 
 local function ConfirmDelete(row)
     if row.kind == "Gathered" then
-        local summary = string.format("%s, %s x%d", date("%b %d", row.time), row.item, row.qty)
-        StaticPopup_Show("GOLDSMITH_HISTORY_DELETE_GATHERED", summary, nil, row.entries)
+        local summary = string.format("%s x%d (gathered %s)", row.item, row.qty, date("%b %d", row.time))
+        local removed = addon:RemoveGathered(row.entries)
+        ShowUndo(summary, function() addon:RestoreGathered(removed) end)
         return
     end
-    local summary = string.format("%s: %s x%d (%s)", KIND_LONG[row.kind], row.item, row.qty, Money(math.abs(row.gold)))
-    StaticPopup_Show("GOLDSMITH_HISTORY_DELETE", summary, nil, row.entry.id)
+    local summary = string.format("%s x%d (%s)", row.item, row.qty, KIND_LONG[row.kind] or row.kind)
+    local entry, index = addon.ledger:remove(row.entry.id)
+    if addon.Refresh then addon.Refresh() end
+    if entry then
+        ShowUndo(summary, function()
+            addon.ledger:restore(entry, index)
+            if addon.Refresh then addon.Refresh() end
+        end)
+    end
 end
 
 local function Menu(row)
@@ -321,6 +323,20 @@ local function Create(parent)
     view.list:SetColumns(COLUMNS)
     view.footnote = UI.Text(parent, "small", "dim")
     view.footnote:SetPoint("BOTTOMLEFT", 2, 2)
+    -- "Deleted Sienna Ink x3 (sale)   Undo", for a while after a delete
+    view.undo = UI.Button(parent, "", 340, 20, function(self)
+        local restore = self.restore
+        self.restore = nil
+        self:Hide()
+        if view.undoTimer then view.undoTimer:Cancel() end
+        if restore then restore() end
+    end)
+    UI.Style(view.undo, "highlight", "borderGold")
+    view.undo:HookScript("OnLeave", function(self) self:SetBackdropBorderColor(addon:Color("borderGold")) end)
+    view.undo.label:SetTextColor(addon:Color("gold"))
+    view.undo:SetPoint("BOTTOMRIGHT", 0, 0)
+    view.undo:Hide()
+    historyView = view
     return view
 end
 

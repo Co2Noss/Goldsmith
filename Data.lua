@@ -133,15 +133,22 @@ function addon:CreateLedger(store)
             return index
         end,
 
+        -- Returns the removed entry and where it was (for restore), or false
         remove = function(self, id)
             for i, e in ipairs(entries) do
                 if e.id == id then
                     version = version + 1
                     table.remove(entries, i)
-                    return true
+                    return e, i
                 end
             end
             return false
+        end,
+
+        -- Puts a removed entry back where it was (History's Undo)
+        restore = function(self, e, index)
+            version = version + 1
+            table.insert(entries, math.min(index or (#entries + 1), #entries + 1), e)
         end,
 
         clear = function(self)

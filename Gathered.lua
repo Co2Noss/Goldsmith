@@ -361,16 +361,40 @@ function addon:TrimGathered(before, keep)
     return removed
 end
 
--- Deletes these entries (History's right-click)
+-- Deletes these entries (History's right-click). Returns what was removed
+-- and where, for RestoreGathered (Undo).
 function addon:RemoveGathered(entries)
     local gone = {}
     for _, e in ipairs(entries) do gone[e] = true end
-    local kept = {}
-    for _, e in ipairs(GoldsmithDB.gathered) do
-        if not gone[e] then kept[#kept + 1] = e end
+    local kept, removed = {}, {}
+    for i, e in ipairs(GoldsmithDB.gathered) do
+        if gone[e] then
+            removed[#removed + 1] = { entry = e, index = i }
+        else
+            kept[#kept + 1] = e
+        end
     end
     wipe(GoldsmithDB.gathered)
     for i, e in ipairs(kept) do GoldsmithDB.gathered[i] = e end
+    BuildLookup()
+    version = version + 1
+    if addon.Refresh then addon.Refresh() end
+    return removed
+end
+
+-- Puts removed entries back where they were. Gathered again since (the
+-- same day, character and item): added to that entry instead.
+function addon:RestoreGathered(removed)
+    for _, r in ipairs(removed or {}) do
+        local e = r.entry
+        local existing = lookup[Key(e.day, e.character, e.realm, e.itemID)]
+        if existing then
+            existing.qty = existing.qty + (e.qty or 0)
+            existing.value = (existing.value or 0) + (e.value or 0)
+        else
+            table.insert(GoldsmithDB.gathered, math.min(r.index, #GoldsmithDB.gathered + 1), e)
+        end
+    end
     BuildLookup()
     version = version + 1
     if addon.Refresh then addon.Refresh() end
