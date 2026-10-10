@@ -249,22 +249,30 @@ end
 --   gatheredQty, itemIDs  - units covered by gathering, and how many of
 --                           each item ID (tiers are priced apart)
 -- or nil if you've never bought or gathered it.
-function addon:GetAcquiredCost(itemName)
+-- exactItemID: only that item (one quality tier): silver and gold of a
+-- material share a name, and by name a silver Munsell Ink was costed at
+-- 37.50g, the average with gold ones, against 13.15g on the AH (2026-10-10)
+function addon:GetAcquiredCost(itemName, exactItemID)
     local list, ids = {}, {}
     for _, e in ipairs(addon.ledger:index().purchases[itemName] or {}) do
-        if (e.quantity or 0) > 0 then
+        if (e.quantity or 0) > 0 and (not exactItemID or e.itemID == exactItemID) then
             list[#list + 1] = { time = e.timestamp or 0, qty = e.quantity, copper = e.totalCopper }
             if e.itemID then ids[e.itemID] = true end
         end
     end
     local gathered = addon:GatheredIndex()[itemName]
+    local gatheredCount = 0
     for _, e in ipairs(gathered or {}) do
-        list[#list + 1] = { time = e.time or 0, qty = e.qty, itemID = e.itemID }
-        ids[e.itemID] = true
+        if not exactItemID or e.itemID == exactItemID then
+            list[#list + 1] = { time = e.time or 0, qty = e.qty, itemID = e.itemID }
+            ids[e.itemID] = true
+            gatheredCount = gatheredCount + 1
+        end
     end
+    if exactItemID then ids = { [exactItemID] = true } end
     if #list == 0 then return nil end
     -- Each list is oldest first already; only a mix needs sorting
-    if gathered and #list > #gathered then
+    if gatheredCount > 0 and #list > gatheredCount then
         table.sort(list, function(a, b) return a.time < b.time end)
     end
 

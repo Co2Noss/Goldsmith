@@ -1630,9 +1630,12 @@ function addon:RecordCraftLot(recipe, resultData, usedReagents, isOrder, orderTe
 
     TakeOffProvided(used, orderTerms and orderTerms.provided, slotOf)
 
-    -- What a material is worth to you: what it cost you, or the price
+    -- What a material is worth to you: what that exact item (its quality)
+    -- cost you, or its price. By name it was the average of every quality:
+    -- 2 silver Munsell Ink at 37.50g each (gold ones in the average) made a
+    -- Missive cost 66g instead of about 40g (2026-10-10).
     local function UnitValue(id)
-        return (names[id] and addon:GetOwnCost(names[id], resultData.itemID)) or addon:GetMarketPrice(id)
+        return (names[id] and addon:GetOwnCost(names[id], resultData.itemID, id)) or addon:GetMarketPrice(id)
     end
 
     -- Materials resourcefulness gave back. On your own crafts they lower
@@ -1665,6 +1668,16 @@ function addon:RecordCraftLot(recipe, resultData, usedReagents, isOrder, orderTe
         time = time(), qty = made, unitCost = cost / made,
         partial = not complete, name = recipe.outputName,
     }
+    -- What it used up, by item (after resourcefulness), and what each was
+    -- valued at: so a cost can be checked or repaired later (none was kept
+    -- before, so wrong lots couldn't be worked out again)
+    lot.used, lot.values = {}, {}
+    for id, qty in pairs(used) do
+        if qty > 0 then
+            lot.used[id] = qty
+            lot.values[id] = UnitValue(id)
+        end
+    end
     local stats = recipe.recipeID and addon.char.recipeStats[recipe.recipeID]
     lot.char = addon.charKey
     if stats then lot.mc, lot.res = stats.multicraft, stats.resourcefulness end
@@ -1786,17 +1799,26 @@ end
 -- "crafted", or several joined with "+"), or nil.
 -- excludeItemID leaves out that item's own crafts (so a craft's cost isn't
 -- worked out from itself).
-function addon:GetOwnCost(itemName, excludeItemID)
+-- exactItemID: that one item (quality tier) only, not every quality with
+-- the name: a craft's materials are valued this way (RecordCraftLot), so
+-- silver ink isn't costed at the average with gold (2026-10-10).
+function addon:GetOwnCost(itemName, excludeItemID, exactItemID)
     local sources = {}
-    local paid, paidQty, _, gatheredIDs = addon:GetAcquiredCost(itemName)
+    local paid, paidQty, _, gatheredIDs = addon:GetAcquiredCost(itemName, exactItemID)
     if paid then table.insert(sources, { "paid", paid, paidQty }) end
     -- Gathered ones at today's AH price: what you could sell them for
     local gathered, gatheredQty = addon:GatheredValue(gatheredIDs)
     if gathered then table.insert(sources, { "gathered", gathered, gatheredQty }) end
     local milled, milledQty = addon:GetMilledCost(itemName)
     if milled then table.insert(sources, { "milled", milled, milledQty }) end
-    local crafted, craftedQty = addon:GetCraftedCostByName(itemName)
-    if crafted and not (excludeItemID and C_Item.GetItemNameByID(excludeItemID) == itemName) then
+    local crafted, craftedQty
+    if exactItemID then
+        if exactItemID ~= excludeItemID then crafted, craftedQty = addon:GetCraftedCost(exactItemID) end
+    else
+        crafted, craftedQty = addon:GetCraftedCostByName(itemName)
+        if excludeItemID and C_Item.GetItemNameByID(excludeItemID) == itemName then crafted = nil end
+    end
+    if crafted then
         table.insert(sources, { "crafted", crafted, craftedQty })
     end
     if #sources == 0 then return nil end
