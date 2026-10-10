@@ -604,7 +604,15 @@ local function PlanTooltip(tooltip, node)
     end
     Option(o.buy, "Buy on the AH", o.buy and ("AH price " .. (o.buy.ageText or "")))
     Option(o.vendor, "Vendor", o.vendor and o.vendor.detail)
-    Option(o.craft, "Craft it", o.craft and "From its cheapest materials")
+    -- Another character's craft (a Jewelcrafting vial in an Alchemy plan):
+    -- say whose, since the Craft button can only make it on them
+    local craftDetail = o.craft and "From its cheapest materials"
+    if o.craft and o.craft.crafterKey and o.craft.crafterKey ~= addon.charKey then
+        local c = GoldsmithDB.characters[o.craft.crafterKey]
+        craftDetail = craftDetail .. string.format("\nwith %s's skill: make it on %s", c and c.name or "another character",
+            c and c.name or "them")
+    end
+    Option(o.craft, "Craft it", craftDetail)
     -- A herb that gives several pigments has its price split between them
     -- by AH value (Planner.lua), so say this one's part
     local millDetail

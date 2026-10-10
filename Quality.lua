@@ -394,10 +394,89 @@ function addon:ScenarioHighUnits(scenario, slot)
     return scenario.mats == "high" and slot.quantity or 0
 end
 
+-- How one quality of a material is made: its recipe's Crafts row for that
+-- tier (without concentration if that reaches it), worked out with the
+-- stats of whoever makes it best (GetCrafter): a Jewelcrafting vial in an
+-- Alchemy plan is Trypttamine's craft, and which quality it reaches
+-- depends on their skill. Returns row, recipe, crafter's key, or nil when
+-- no character has that recipe's quality data. `making` guards against
+-- recipes that lead back to themselves. Shared with the planner.
+local making = {}
+-- Results kept until data changes (asked for every quality slot of every
+-- mix of every recipe); recipes by output item ID, rebuilt with recipesVersion
+local craftedRowCache = addon:NewCache()
+local byOutputID, byOutputIDVersion
+local CraftedTierRowUncached
+
+function addon:CraftedTierRow(itemID, name)
+    if not itemID or making[itemID] then return nil end
+    local store = craftedRowCache:Get()
+    local hit = store[itemID]
+    if hit == nil then
+        local row, recipe, key = CraftedTierRowUncached(itemID, name)
+        hit = row and { row, recipe, key } or false
+        store[itemID] = hit
+    end
+    if hit then return hit[1], hit[2], hit[3] end
+end
+
+CraftedTierRowUncached = function(itemID, name)
+    if not byOutputID or byOutputIDVersion ~= addon.recipesVersion then
+        byOutputID, byOutputIDVersion = {}, addon.recipesVersion
+        for _, r in pairs(GoldsmithDB.recipes) do
+            if r.outputItemID and not byOutputID[r.outputItemID] then byOutputID[r.outputItemID] = r end
+        end
+    end
+    local recipe = byOutputID[itemID] or (name and addon:FindRecipeByOutput(name))
+    if not recipe then return nil end
+    -- The best crafter, else anyone with the recipe's quality data
+    local key = addon:GetCrafter(recipe.recipeID)
+    local c = key and GoldsmithDB.characters[key]
+    if not (c and c.tierData and c.tierData[recipe.recipeID]) then
+        key, c = nil, nil
+        for k, other in pairs(GoldsmithDB.characters) do
+            if other.tierData and other.tierData[recipe.recipeID] then key, c = k, other break end
+        end
+    end
+    if not c then return nil end
+    local tier
+    for t, out in pairs(c.tierData[recipe.recipeID].outputs or {}) do
+        if out.itemID == itemID then tier = t end
+    end
+    if not tier then return nil end
+    making[itemID] = true
+    -- No pcall here: work spread over frames may pause inside (WithCharacter
+    -- handles both cases)
+    local rows = addon:WithCharacter(key, addon.GetTierRows, addon, recipe)
+    making[itemID] = nil
+    local row
+    for _, r in ipairs(rows or {}) do
+        if r.tier == tier and (not row or (row.concentrate and not r.concentrate)) then row = r end
+    end
+    if row and row.cost and not row.partial then return row, recipe, key end
+end
+
+local function CraftedTierCost(itemID, name)
+    local row = addon:CraftedTierRow(itemID, name)
+    return row and row.cost
+end
+
+-- The cheaper of buying a material quality and making it, else what you
+-- paid: a gold Sunglass Vial listed at 293g made the gold Draught of
+-- Rampant Abandon row cost 245g each, while its plan crafted the vials for
+-- 49g and came to 61g (2026-10-10)
+local function QualityPrice(itemID, name)
+    local market = addon:GetMarketPrice(itemID)
+    local crafted = CraftedTierCost(itemID, name)
+    if market and crafted then return math.min(market, crafted) end
+    return market or crafted or addon:GetOwnCost(name)
+end
+
 -- Cost per crafted item for a scenario's materials: each quality material
 -- split between its lowest and best quality as the mix says (priced by
--- those exact items), everything else at its cheapest known cost. Uses the
--- craft model (your stats, or none with noProcs).
+-- those exact items, the cheaper of buying and making them), everything
+-- else at its cheapest known cost. Uses the craft model (your stats, or
+-- none with noProcs).
 local function ScenarioCost(recipe, scenario, noProcs)
     local outputPerCraft, modelSlots = addon:GetCraftModel(recipe, noProcs)
     local perCraft, complete = 0, true
@@ -407,8 +486,10 @@ local function ScenarioCost(recipe, scenario, noProcs)
         if #ids > 1 then
             local high = addon:ScenarioHighUnits(scenario, m.slot)
             local low = m.slot.quantity - high
-            local lowPrice = addon:GetMarketPrice(ids[1]) or addon:GetOwnCost(m.slot.names[1])
-            local highPrice = addon:GetMarketPrice(ids[#ids]) or addon:GetOwnCost(m.slot.names[#ids])
+            -- Only the qualities the mix uses (crafting prices are worked out)
+            local lowPrice, highPrice
+            if low > 0 then lowPrice = QualityPrice(ids[1], m.slot.names[1]) end
+            if high > 0 then highPrice = QualityPrice(ids[#ids], m.slot.names[#ids]) end
             if (low > 0 and not lowPrice) or (high > 0 and not highPrice) then
                 complete = false
             end

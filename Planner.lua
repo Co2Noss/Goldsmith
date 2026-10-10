@@ -137,23 +137,21 @@ GetOptions = function(itemID, name, depth, memo, visiting)
     -- crafted from the cheapest materials, and the step made silver ones
     -- (user, 2026-10-09). Such an item is crafted the way its tier row says
     -- (the cheapest mix reaching it, with concentration if only that
-    -- reaches it), or not at all if no way does.
-    local td = recipe and addon:StatsChar().tierData[recipe.recipeID]
-    if td then
-        local tier
-        for t, out in pairs(td.outputs or {}) do
-            if out.itemID == itemID then tier = t end
+    -- reaches it), or not at all if no way does. The row is worked out with
+    -- the stats of whoever makes it (CraftedTierRow): a Jewelcrafting vial in
+    -- Mysticmead's Alchemy plan fell back to the plain recipe, as if crafting
+    -- always reached gold (2026-10-10).
+    local hasTiers = false
+    if recipe then
+        for _, c in pairs(GoldsmithDB.characters) do
+            if c.tierData and c.tierData[recipe.recipeID] then hasTiers = true break end
         end
-        local row
-        if tier then
-            for _, r in ipairs(addon:GetTierRows(recipe) or {}) do
-                -- Without concentration first: it's limited
-                if r.tier == tier and (not row or (row.concentrate and not r.concentrate)) then row = r end
-            end
-        end
-        if row and row.cost and not row.partial then
+    end
+    if hasTiers then
+        local row, _, crafterKey = addon:CraftedTierRow(itemID, name)
+        if row then
             options.craft = { method = "Craft", unit = row.cost, recipe = recipe, tierRow = row,
-                verb = row.concentrate and "Craft + conc" or nil }
+                crafterKey = crafterKey, verb = row.concentrate and "Craft + conc" or nil }
         end
         recipe = nil
     end
