@@ -383,6 +383,51 @@ function addon:HiddenSuggestionsButton(parent)
     return button
 end
 
+-- "followed: +320g" (Overview and Characters): how the last 7 days'
+-- suggestions turned out (GetFollowedSummary), beside a title. Both tabs'
+-- suggestions count (MarkSuggested), so it's the same number on each.
+-- Call label:Update(hide) on refresh.
+function addon:FollowedLabel(parent)
+    local Signed = function(c) return addon:FormatSignedMoney(c) end
+    local label = CreateFrame("Frame", nil, parent)
+    label:SetSize(150, 18)
+    label:EnableMouse(true)
+    label.text = UI.Text(label, "small", "muted")
+    label.text:SetPoint("LEFT")
+    UI.SetTooltip(label, function(tooltip)
+        local f = label.data
+        if not f then return end
+        tooltip:AddLine("Suggestions you followed, last 7 days", 1, 1, 1)
+        tooltip:AddLine("Crafts you made within a day of Goldsmith suggesting them, and what they sold for.", 0.6, 0.6, 0.6, true)
+        tooltip:AddDoubleLine("Crafted", tostring(f.crafted), 0.8, 0.8, 0.8, 1, 1, 1)
+        tooltip:AddDoubleLine("Sold", tostring(f.sold), 0.8, 0.8, 0.8, 1, 1, 1)
+        tooltip:AddDoubleLine("Not sold yet", tostring(f.unsold), 0.8, 0.8, 0.8, 1, 1, 1)
+        local r, g, b = addon:Color(addon:MoneyColor(f.profit))
+        tooltip:AddDoubleLine("Profit on what sold", Signed(f.profit), 0.8, 0.8, 0.8, r, g, b)
+        tooltip:AddLine(" ")
+        for i = 1, math.min(#f.items, 8) do
+            local s = f.items[i]
+            local ir, ig, ib = addon:Color(addon:MoneyColor(s.profit))
+            tooltip:AddDoubleLine(string.format("%s  %d of %d sold", s.name, s.sold, s.made), Signed(s.profit),
+                0.9, 0.9, 0.9, ir, ig, ib)
+        end
+    end, "ANCHOR_BOTTOM")
+    function label:Update(hide)
+        local f = addon:GetFollowedSummary(7)
+        self.data = f
+        self:SetShown(not hide and f.crafted > 0)
+        -- Nothing sold yet: say so, rather than "+0.00g" (user, 2026-10-10)
+        if f.sold == 0 then
+            self.text:SetText(string.format("followed: %d made, 0 sold", math.floor(f.crafted + 0.5)))
+        else
+            self.text:SetText("followed: " .. addon:Colorize(Signed(f.profit), addon:MoneyColor(f.profit)))
+        end
+        self:SetWidth(math.max(self.text:GetStringWidth(), 1))
+    end
+    label:Hide()
+    return label
+end
+
 -- Chat messages Goldsmith prints by itself (not answers to /gsm commands).
 -- kind is "money" (a sale, purchase or deposit) or "info" (anything else).
 -- Everything or off: the "Sales and purchases" level was dropped (user,

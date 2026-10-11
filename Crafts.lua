@@ -1390,11 +1390,16 @@ local function CreatePlanScreen(parent)
     screen.back:SetPoint("TOPLEFT", 0, 0)
     screen.title = UI.Text(screen, "heading")
     screen.title:SetPoint("LEFT", screen.back, "RIGHT", 14, 0)
-    -- The title opens the item's page
+    -- The title opens the item's page; shift-click searches the AH for it
+    -- (or links it in chat), like the material rows: without Auctionator
+    -- that's how to get its live price (user, 2026-10-11)
     local titleButton = CreateFrame("Button", nil, screen)
     titleButton:SetAllPoints(screen.title)
     titleButton:SetScript("OnClick", function()
-        if screen.plan then addon:OpenItem(screen.plan.recipe.outputName, screen.tierItemID) end
+        if not screen.plan then return end
+        local name = screen.plan.recipe.outputName
+        if IsShiftKeyDown() and addon:ShiftClickItem(screen.tierItemID, name) then return end
+        addon:OpenItem(name, screen.tierItemID)
     end)
     -- The item and what it does; the click hint always shows (it's the
     -- only thing to explain here)
@@ -1403,6 +1408,7 @@ local function CreatePlanScreen(parent)
         tooltip:AddLine(screen.title:GetText() or screen.plan.recipe.outputName, 1, 1, 1)
         addon:AddItemDescription(tooltip, screen.tierItemID)
         addon:ClickHint(tooltip, "Click for the item's page", true)
+        addon:ShiftClickHint(tooltip, "Shift-click to search the AH for it (or link it in chat)", true)
     end)
     screen.subtitle = UI.Text(screen, "small", "muted")
     screen.subtitle:SetPoint("LEFT", screen.title, "RIGHT", 10, 0)
@@ -2152,7 +2158,9 @@ local function CreateSalvageScreen(parent)
     titleButton:SetAllPoints(screen.title)
     titleButton:SetScript("OnClick", function()
         local t = screen.target
-        if t then addon:OpenItem(t.name, t.itemID) end
+        if not t then return end
+        if IsShiftKeyDown() and addon:ShiftClickItem(t.itemID, t.name) then return end
+        addon:OpenItem(t.name, t.itemID)
     end)
     UI.SetTooltip(titleButton, function(tooltip)
         local t = screen.target
@@ -2160,6 +2168,7 @@ local function CreateSalvageScreen(parent)
         tooltip:AddLine(screen.title:GetText() or t.name, 1, 1, 1)
         addon:AddItemDescription(tooltip, t.itemID)
         addon:ClickHint(tooltip, "Click for the item's page", true)
+        addon:ShiftClickHint(tooltip, "Shift-click to search the AH for it (or link it in chat)", true)
     end)
     screen.subtitle = UI.Text(screen, "small", "muted")
     screen.subtitle:SetPoint("LEFT", screen.title, "RIGHT", 10, 0)

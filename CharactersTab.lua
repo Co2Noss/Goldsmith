@@ -392,8 +392,11 @@ local function Create(parent)
     view.note:SetPoint("LEFT", title, "RIGHT", 10, -1)
     view.note:SetText("most profit first")
     -- To-dos hidden with Not this (right-click one), to bring back
+    -- How the suggestions turned out, as on the Overview (user, 2026-10-11)
+    view.followed = addon:FollowedLabel(parent)
+    view.followed:SetPoint("LEFT", view.note, "RIGHT", 10, 0)
     view.hidden = addon:HiddenSuggestionsButton(parent)
-    view.hidden:SetPoint("LEFT", view.note, "RIGHT", 14, 1)
+    view.hidden:SetPoint("LEFT", view.followed, "RIGHT", 4, 1)
     view.page = UI.Text(parent, "label", "dim", "RIGHT")
     view.page:SetPoint("TOPRIGHT", 0, -6)
 
@@ -425,7 +428,15 @@ local function Refresh(view, state)
         end
     end
     addon:MarkSuggested(names)
+    view.followed:Update()
     view.hidden:Update()
+    -- After the label when it shows, else after the note
+    view.hidden:ClearAllPoints()
+    if view.followed:IsShown() then
+        view.hidden:SetPoint("LEFT", view.followed, "RIGHT", 12, 1)
+    else
+        view.hidden:SetPoint("LEFT", view.note, "RIGHT", 14, 1)
+    end
     local cooldowns = {}
     for _, cd in ipairs(addon:GetCooldowns(state.profession, true)) do
         cooldowns[cd.charKey] = cooldowns[cd.charKey] or {}
