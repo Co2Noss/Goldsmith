@@ -252,7 +252,10 @@ end
 -- exactItemID: only that item (one quality tier): silver and gold of a
 -- material share a name, and by name a silver Munsell Ink was costed at
 -- 37.50g, the average with gold ones, against 13.15g on the AH (2026-10-10)
-function addon:GetAcquiredCost(itemName, exactItemID)
+-- skip: units of what you hold that came another way (your own crafts,
+-- GetOwnCost), so only the rest is covered here; nil if that's all of it
+-- (holding none, the newest one is still used, as without skip)
+function addon:GetAcquiredCost(itemName, exactItemID, skip)
     local list, ids = {}, {}
     for _, e in ipairs(addon.ledger:index().purchases[itemName] or {}) do
         if (e.quantity or 0) > 0 and (not exactItemID or e.itemID == exactItemID) then
@@ -280,6 +283,10 @@ function addon:GetAcquiredCost(itemName, exactItemID)
     for itemID in pairs(ids) do held = held + addon:HeldAnywhere(itemID) end
 
     local remaining, copper, paidQty, gatheredQty, gatheredIDs = math.max(held, 1), 0, 0, 0, {}
+    if skip and skip > 0 and held > 0 then
+        remaining = held - skip
+        if remaining <= 0 then return nil, 0, 0, {} end
+    end
     for i = #list, 1, -1 do
         local a = list[i]
         local take = math.min(a.qty, remaining)

@@ -310,25 +310,6 @@ function addon:GetMilledCost(itemName)
     return totalCost / totalQty, totalQty
 end
 
--- Tooltip lines for herbs (your yield) and pigments (your milled cost).
-function addon:AddMillingTooltipLines(tooltip, itemID, itemName)
-    local record = GoldsmithDB.milling[itemID]
-    if record and record.milled > 0 then
-        tooltip:AddDoubleLine("|cFF00FF00Goldsmith|r milling yield",
-            string.format("per herb (%d milled)", record.milled), 1, 1, 1, 1, 1, 1)
-        for _, out in pairs(record.outputs) do
-            tooltip:AddDoubleLine("  " .. out.name, string.format("%.2f", out.qty / record.milled),
-                0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
-        end
-    end
-
-    local milledCost, qty = addon:GetMilledCost(itemName)
-    if milledCost then
-        tooltip:AddDoubleLine("|cFF00FF00Goldsmith|r milled cost",
-            string.format("%s (%d milled)", FormatGold(milledCost), qty), 1, 1, 1, 1, 1, 1)
-    end
-end
-
 function addon:ListMilling()
     local any = false
     for herbID, record in pairs(GoldsmithDB.milling) do

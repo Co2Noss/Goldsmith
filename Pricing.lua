@@ -1370,16 +1370,21 @@ local function GetProvided(reagents)
     return provided
 end
 
-local function GetOrderTerms(recipeID)
-    local order = GetClaimedOrder(recipeID)
-    if not order then return nil end
-    local provided = GetProvided(order.reagents)
-    -- Patron rewards: { itemID, count, link }
+-- Patron rewards: { itemID, count, link }
+local function GetOrderRewards(order)
     local rewards = {}
     for _, r in ipairs(order.npcOrderRewards or {}) do
         local id = r.itemLink and C_Item.GetItemInfoInstant(r.itemLink)
         if id then table.insert(rewards, { itemID = id, count = r.count or 1, link = r.itemLink }) end
     end
+    return rewards
+end
+
+local function GetOrderTerms(recipeID)
+    local order = GetClaimedOrder(recipeID)
+    if not order then return nil end
+    local provided = GetProvided(order.reagents)
+    local rewards = GetOrderRewards(order)
     return {
         commission = math.max((order.tipAmount or 0) - (order.consortiumCut or 0), 0),
         tip = order.tipAmount, cut = order.consortiumCut,
@@ -1548,6 +1553,124 @@ local function TakeOffProvided(used, provided, slotOf)
     end
 end
 
+-- Rewards you could sell, at their AH price; bound ones (knowledge,
+-- currencies) are listed at 0. Sets each reward's value; returns the total.
+local function ValueRewards(rewards)
+    local total = 0
+    for _, r in ipairs(rewards or {}) do
+        local price = addon:CanAuction(r.itemID) and addon:GetAHPrice(r.itemID)
+        r.value = price and price * r.count or 0
+        total = total + r.value
+    end
+    return total
+end
+
+-- What a crafting order will cost you, before you craft it (the line under
+-- the order's materials, OrderCost.lua). order = the order the game is
+-- showing, tx = its recipe form's transaction (Blizzard's
+-- ProfessionsRecipeTransactionMixin). Works like RecordCraftLot: the
+-- recipe's materials as Goldsmith saved them, with the qualities the form
+-- has chosen for quality materials, less what the customer supplies. The
+-- form's own slot list can't be the base: it leaves out materials that
+-- come in one quality (a Leatherworking patron order listed only its
+-- Void-Tempered Plating, not the 2 Mote of Light and 1 Fantastic Fur the
+-- crafter supplies, 2026-10-11). A quality slot the form hasn't filled
+-- (before you start the order, nothing is) counts at its lowest quality:
+-- what you'd go and buy. Optional materials you've added count too.
+-- Valued like RecordCraftLot, so the line matches History. Resourcefulness
+-- isn't counted (it may give some back; History shows that as kept).
+-- Returns { cost, complete, mats = { { itemID, qty, unit } }, provided =
+-- { [itemID] = qty }, commission, rewards, rewardsValue }, or nil.
+
+-- The recipe's required material slots: { { itemIDs, quantity } }. The
+-- saved recipe, else the game's recipe data (as SaveRecipe reads it).
+local function RequiredSlots(recipeID)
+    local recipe = recipeID and GoldsmithDB.recipes[recipeID]
+    if recipe and recipe.reagents and #recipe.reagents > 0 then
+        return recipe.reagents, recipe.outputItemID
+    end
+    local ok, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
+    if not (ok and type(schematic) == "table") then return nil end
+    local slots = {}
+    for _, slot in ipairs(schematic.reagentSlotSchematics or {}) do
+        if slot.required then
+            local ids = {}
+            for _, r in ipairs(slot.reagents or {}) do
+                if r.itemID then table.insert(ids, r.itemID) end
+            end
+            if #ids > 0 then table.insert(slots, { itemIDs = ids, quantity = slot.quantityRequired or 0 }) end
+        end
+    end
+    return slots, schematic.outputItemID
+end
+
+function addon:GetOrderPreview(order, tx)
+    if type(order) ~= "table" or not tx then return nil end
+    local okR, recipeID = pcall(tx.GetRecipeID, tx)
+    recipeID = (okR and recipeID) or order.spellID
+    local required, outputID = RequiredSlots(recipeID)
+    if not required then return nil end
+
+    -- What the form has allocated: { [itemID] = quantity }
+    local allocated = {}
+    local okA, list = pcall(tx.CreateCraftingReagentInfoTbl, tx)
+    for _, entry in ipairs(okA and type(list) == "table" and list or {}) do
+        local id = (type(entry.reagent) == "table" and entry.reagent.itemID) or entry.itemID
+        if id and (entry.quantity or 0) > 0 then
+            allocated[id] = (allocated[id] or 0) + entry.quantity
+        end
+    end
+
+    local used, slotOf = {}, {}
+    for _, slot in ipairs(required) do
+        local ids = slot.itemIDs or {}
+        for _, id in ipairs(ids) do slotOf[id] = ids end
+        local counted = 0
+        if #ids > 1 then
+            for _, id in ipairs(ids) do
+                if allocated[id] then
+                    used[id] = (used[id] or 0) + allocated[id]
+                    counted = counted + allocated[id]
+                end
+            end
+        end
+        local short = (slot.quantity or 0) - counted
+        if short > 0 and ids[1] then
+            used[ids[1]] = (used[ids[1]] or 0) + short
+        end
+    end
+    -- Optional and finishing materials you've added
+    for id, qty in pairs(allocated) do
+        if not slotOf[id] then used[id] = (used[id] or 0) + qty end
+    end
+
+    local provided = GetProvided(order.reagents)
+    -- For checking from the saved file if the line looks wrong
+    GoldsmithDB.orderPreviewDebug = { time = time(), recipeID = recipeID,
+        allocated = okA and PlainCopy(list, 3) or nil, provided = provided,
+        orderReagents = PlainCopy(order.reagents, 4) }
+    TakeOffProvided(used, provided, slotOf)
+
+
+    local cost, complete, mats = 0, true, {}
+    for id, qty in pairs(used) do
+        if qty > 0 then
+            local name = C_Item.GetItemNameByID(id)
+            local unit = (name and addon:GetOwnCost(name, outputID, id)) or addon:GetMarketPrice(id)
+            if unit then cost = cost + unit * qty else complete = false end
+            table.insert(mats, { itemID = id, qty = qty, unit = unit })
+        end
+    end
+    table.sort(mats, function(a, b) return (a.unit or 0) * a.qty > (b.unit or 0) * b.qty end)
+
+    local rewards = GetOrderRewards(order)
+    return {
+        cost = cost, complete = complete, mats = mats, provided = provided,
+        commission = math.max((order.tipAmount or 0) - (order.consortiumCut or 0), 0),
+        rewards = rewards, rewardsValue = ValueRewards(rewards),
+    }
+end
+
 -- Order crafts saved before customer materials were recognised (2026-09-30)
 -- counted them as yours. Those that kept the order's reagents list are
 -- worked out again once, at today's prices.
@@ -1688,14 +1811,7 @@ function addon:RecordCraftLot(recipe, resultData, usedReagents, isOrder, orderTe
             -- What the order paid (copper), when the game reported it
             lot.commission = orderTerms.commission
             lot.tip, lot.cut = orderTerms.tip, orderTerms.cut
-            -- Rewards you could sell, at their AH price; bound ones
-            -- (knowledge, currencies) are listed at 0
-            local rewardsValue = 0
-            for _, r in ipairs(orderTerms.rewards) do
-                local price = addon:CanAuction(r.itemID) and addon:GetAHPrice(r.itemID)
-                r.value = price and price * r.count or 0
-                rewardsValue = rewardsValue + r.value
-            end
+            local rewardsValue = ValueRewards(orderTerms.rewards)
             lot.rewards = #orderTerms.rewards > 0 and orderTerms.rewards or nil
             lot.rewardsValue = rewardsValue > 0 and rewardsValue or nil
             -- For checking: the order's materials as the game gave them,
@@ -1796,7 +1912,11 @@ end
 -- What an item has cost you: purchases, gathering (at today's AH price),
 -- your own milling and your own crafts combined, weighted by how many you
 -- got each way. Returns cost and source ("paid", "gathered", "milled",
--- "crafted", or several joined with "+"), or nil.
+-- "crafted", or several joined with "+"), or nil; third, the parts:
+-- { { source, copper per unit, units } } (the item tooltip lists them).
+-- Your crafts cover what you hold first and purchases the rest: purchases
+-- used to cover everything held, crafts included, so 8 crafted Mote of
+-- Light were counted twice next to 161 held (2026-10-11).
 -- excludeItemID leaves out that item's own crafts (so a craft's cost isn't
 -- worked out from itself).
 -- exactItemID: that one item (quality tier) only, not every quality with
@@ -1804,13 +1924,6 @@ end
 -- silver ink isn't costed at the average with gold (2026-10-10).
 function addon:GetOwnCost(itemName, excludeItemID, exactItemID)
     local sources = {}
-    local paid, paidQty, _, gatheredIDs = addon:GetAcquiredCost(itemName, exactItemID)
-    if paid then table.insert(sources, { "paid", paid, paidQty }) end
-    -- Gathered ones at today's AH price: what you could sell them for
-    local gathered, gatheredQty = addon:GatheredValue(gatheredIDs)
-    if gathered then table.insert(sources, { "gathered", gathered, gatheredQty }) end
-    local milled, milledQty = addon:GetMilledCost(itemName)
-    if milled then table.insert(sources, { "milled", milled, milledQty }) end
     local crafted, craftedQty
     if exactItemID then
         if exactItemID ~= excludeItemID then crafted, craftedQty = addon:GetCraftedCost(exactItemID) end
@@ -1818,6 +1931,13 @@ function addon:GetOwnCost(itemName, excludeItemID, exactItemID)
         crafted, craftedQty = addon:GetCraftedCostByName(itemName)
         if excludeItemID and C_Item.GetItemNameByID(excludeItemID) == itemName then crafted = nil end
     end
+    local paid, paidQty, _, gatheredIDs = addon:GetAcquiredCost(itemName, exactItemID, crafted and craftedQty)
+    if paid then table.insert(sources, { "paid", paid, paidQty }) end
+    -- Gathered ones at today's AH price: what you could sell them for
+    local gathered, gatheredQty = addon:GatheredValue(gatheredIDs)
+    if gathered then table.insert(sources, { "gathered", gathered, gatheredQty }) end
+    local milled, milledQty = addon:GetMilledCost(itemName)
+    if milled then table.insert(sources, { "milled", milled, milledQty }) end
     if crafted then
         table.insert(sources, { "crafted", crafted, craftedQty })
     end
@@ -1829,7 +1949,7 @@ function addon:GetOwnCost(itemName, excludeItemID, exactItemID)
         qty = qty + s[3]
         table.insert(labels, s[1])
     end
-    return total / qty, table.concat(labels, "+")
+    return total / qty, table.concat(labels, "+"), sources
 end
 
 -- Unit cost of one reagent slot, the cheapest of its qualities:
@@ -2155,11 +2275,27 @@ end
 
 -- Tooltips
 
+-- Detail lines (grey, indented: where a number comes from, whose stats,
+-- the AH price under the profit) show only while Ctrl is held; the item
+-- tooltip then ends with one "Hold Ctrl for details" line instead (user,
+-- 2026-10-11). In Goldsmith's own hovers (the Crafts tab shares
+-- AddRecipeTooltipLines) they're explanations like any other (addon:Explain).
+local detailHidden = false
+local function Detail(tooltip, text)
+    if IsControlKeyDown() then
+        tooltip:AddLine("  " .. text, 0.6, 0.6, 0.6)
+    else
+        detailHidden = true
+        addon:Explain(tooltip, text)
+    end
+end
+
 local function AddTooltipLines(tooltip, data)
     if tooltip ~= GameTooltip and tooltip ~= ItemRefTooltip then return end
     if not addon.ledger or not data or not data.id then return end
     local mode = addon:Setting("tooltips")
     if mode == "off" then return end
+    detailHidden = false
 
     local name = C_Item.GetItemNameByID(data.id)
     if not name then return end
@@ -2176,17 +2312,37 @@ local function AddTooltipLines(tooltip, data)
     end
     local short = mode == "short"
 
-    -- What you paid for the ones you bought, unless the ones you hold are
-    -- your own crafts ("avg cost 160.55g (newest 1 bought)" showed on 28
-    -- crafted alloys, 2026-10-09)
-    local madeFor, madeUnits, madePartial = addon:GetCraftedCost(data.id)
-    -- Some of what you hold gathered: said once, below ("yours cost you")
-    local cash, bought, boughtAt, free
-    if not madeFor then cash, bought, boughtAt, free = addon:GetHeldCashCost(name) end
-    local avg, qty = addon:GetAverageCost(name)
-    if avg and not madeFor and not cash then
-        tooltip:AddDoubleLine("|cFF00FF00Goldsmith|r you paid",
-            string.format("%s each (last %d bought)", FormatGold(avg), qty), 1, 1, 1, 1, 1, 1)
+    -- What yours cost you: this exact quality, counted the way every cost
+    -- is (GetOwnCost, so it matches the order line and History): your
+    -- crafts, the purchases covering the rest of what you hold, and
+    -- gathered ones at their AH price (user, 2026-10-11: "we are looking
+    -- for cost not spent"; the tooltip had them free, the order line not).
+    -- By name if nothing has this item ID (purchases saved before IDs were).
+    -- Where it comes from is a detail line: "50 bought at 2.06g, 14
+    -- gathered (worth 2.06g, cost you nothing)".
+    local own, ownSource, parts = addon:GetOwnCost(name, nil, data.id)
+    if not own then own, ownSource, parts = addon:GetOwnCost(name) end
+    local madeFor, _, madePartial = addon:GetCraftedCost(data.id)
+    local ownPartial = madeFor and madePartial
+    if own then
+        tooltip:AddDoubleLine("|cFF00FF00Goldsmith|r yours cost you",
+            string.format("%s%s each", FormatGold(own), ownPartial and "+" or ""), 1, 1, 1, 1, 1, 1)
+        if not short then
+            local list = {}
+            for _, p in ipairs(parts or {}) do
+                local n, unit = math.floor(p[3] + 0.5), FormatGold(p[2])
+                if p[1] == "gathered" then
+                    table.insert(list, string.format("%d gathered (worth %s, cost you nothing)", n, unit))
+                elseif p[1] == "crafted" then
+                    table.insert(list, string.format("%d crafted at %s", n, unit))
+                elseif p[1] == "milled" then
+                    table.insert(list, string.format("%d milled at %s", n, unit))
+                else
+                    table.insert(list, string.format("%d bought at %s", n, unit))
+                end
+            end
+            if #list > 0 then Detail(tooltip, table.concat(list, ", ")) end
+        end
     end
     -- Today's AH price, for things you don't craft (crafted items show it
     -- under their profit), when Auctionator or TSM aren't there to show it
@@ -2198,7 +2354,9 @@ local function AddTooltipLines(tooltip, data)
         end
     end
 
-    if not short then addon:AddMillingTooltipLines(tooltip, data.id, name) end
+    -- No salvage yields here: they're for planning in Goldsmith (Crafts'
+    -- salvage rows, /gsm milling), not for a bag hover (user, 2026-10-11).
+    -- A pigment's milled cost is part of "yours cost you" above.
 
     -- Today's price vs its usual price, once there's enough history
     local insight = addon:GetPriceInsight(data.id)
@@ -2212,40 +2370,21 @@ local function AddTooltipLines(tooltip, data)
     end
     if short then return end
 
-    -- What the ones you crafted cost you (this exact quality), from your
-    -- latest crafts of it, at the prices then
-    if madeFor then
-        tooltip:AddDoubleLine("|cFF00FF00Goldsmith|r yours cost you",
-            string.format("%s%s each (%d you crafted)", FormatGold(madeFor), madePartial and "+" or "", madeUnits),
-            1, 1, 1, 1, 1, 1)
-    end
-
-    -- Lowest AH listing price that doesn't lose money after the AH cut:
-    -- based on what yours cost to make if you crafted them, else the
-    -- current average cost
-    local unitCost, partial = madeFor, madePartial
-    if not unitCost then
-        unitCost, partial = addon:GetUnitCostBasis(name)
-        -- Some or all gathered or looted: what you spent, gathered ones
-        -- free, said the way crafted ones are ("yours cost you"). All free
-        -- (a payout bag's Nocturnal Lotus): no break-even (2026-10-09).
-        if cash then
-            partial = false
-            if cash <= 0 then
-                unitCost = nil
-                tooltip:AddDoubleLine("|cFF00FF00Goldsmith|r yours cost you",
-                    string.format("free (%d gathered or looted)", free), 1, 1, 1, 0.3, 1, 0.3)
-            else
-                unitCost = cash
-                tooltip:AddDoubleLine("|cFF00FF00Goldsmith|r yours cost you",
-                    string.format("%s each (%d bought at %s, %d free)", FormatGold(cash), bought, FormatGold(boughtAt), free),
-                    1, 1, 1, 1, 1, 1)
-            end
+    -- Lowest AH listing price that doesn't lose money after the AH cut, from
+    -- what yours cost you. Not when all of it was gathered: that's just the
+    -- AH price plus the cut, and any sale is gold you didn't have
+    -- (Nocturnal Lotus from a payout bag, 2026-10-09).
+    if own and own > 0 and ownSource ~= "gathered" then
+        tooltip:AddDoubleLine("|cFF00FF00Goldsmith|r break-even on yours",
+            FormatGold(own / (1 - AH_CUT)) .. (ownPartial and "+" or ""), 1, 1, 1, 1, 1, 1)
+    elseif not own then
+        -- None of yours: from the estimated cost (a recipe you haven't
+        -- crafted yet)
+        local unitCost, partial = addon:GetUnitCostBasis(name)
+        if unitCost and unitCost > 0 then
+            tooltip:AddDoubleLine("|cFF00FF00Goldsmith|r break-even price",
+                FormatGold(unitCost / (1 - AH_CUT)) .. (partial and "+" or ""), 1, 1, 1, 1, 1, 1)
         end
-    end
-    if unitCost and unitCost > 0 then
-        tooltip:AddDoubleLine((madeFor or cash) and "|cFF00FF00Goldsmith|r break-even on yours" or "|cFF00FF00Goldsmith|r break-even price",
-            FormatGold(unitCost / (1 - AH_CUT)) .. (partial and "+" or ""), 1, 1, 1, 1, 1, 1)
     end
 
     if recipe then
@@ -2253,9 +2392,15 @@ local function AddTooltipLines(tooltip, data)
         if crafter ~= addon.charKey then
             local c = GoldsmithDB.characters[crafter]
             local better = addon:BetterCrafterText(recipe.recipeID)
-            tooltip:AddLine(string.format("  Made on %s%s", c and c.name or crafter,
-                better and (", " .. better) or ""), 0.6, 0.6, 0.6)
+            Detail(tooltip, string.format("Made on %s%s", c and c.name or crafter,
+                better and (", " .. better) or ""))
         end
+    end
+    -- One hint in place of the hidden lines; the Shift breakdown is
+    -- named too, its own hint being one of them
+    if detailHidden then
+        tooltip:AddLine(recipe and "  Hold Ctrl for details, Shift for material costs" or "  Hold Ctrl for details",
+            0.6, 0.6, 0.6)
     end
 end
 
@@ -2297,9 +2442,9 @@ function addon:AddRecipeTooltipLines(tooltip, recipe, itemID, showBreakdown, sho
         -- nothing else in the tooltip shows it then (2026-10-09)
         if not short then
             if addon:HasAuctionator() or addon:HasTSM() then
-                tooltip:AddLine("  AH price " .. info.priceAgeText, 0.6, 0.6, 0.6)
+                Detail(tooltip, "AH price " .. info.priceAgeText)
             else
-                tooltip:AddLine(string.format("  AH price %s (%s)", FormatGold(info.price), info.priceAgeText), 0.6, 0.6, 0.6)
+                Detail(tooltip, string.format("AH price %s (%s)", FormatGold(info.price), info.priceAgeText))
             end
         end
     end
@@ -2326,11 +2471,11 @@ function addon:AddRecipeTooltipLines(tooltip, recipe, itemID, showBreakdown, sho
         -- Whose stats: yours, or the crafter's (WithCharacter)
         local statsChar = addon:StatsChar()
         local whose = statsChar == addon.char and "Your stats" or ((statsChar.name or "Their") .. "'s stats")
-        tooltip:AddLine(string.format("  %s: %s - %.2f made per craft", whose,
+        Detail(tooltip, string.format("%s: %s - %.2f made per craft", whose,
             #parts > 0 and table.concat(parts, ", ") or "no multicraft or resourcefulness",
-            outputPerCraft), 0.6, 0.6, 0.6)
+            outputPerCraft))
     else
-        tooltip:AddLine("  Base recipe numbers (older recipes have no multicraft or resourcefulness)", 0.6, 0.6, 0.6)
+        Detail(tooltip, "Base recipe numbers (older recipes have no multicraft or resourcefulness)")
     end
 
     if showBreakdown then
@@ -2346,7 +2491,7 @@ function addon:AddRecipeTooltipLines(tooltip, recipe, itemID, showBreakdown, sho
             tooltip:AddDoubleLine(left, right, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
         end
     else
-        tooltip:AddLine("  Hold Shift for material costs", 0.6, 0.6, 0.6)
+        Detail(tooltip, "Hold Shift for material costs")
     end
 end
 
@@ -2849,7 +2994,8 @@ function addon:InitializePricing()
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, AddTooltipLines)
 
     -- Tooltips don't redraw on key presses, so redraw on Shift to show or
-    -- hide the material breakdown while hovering. Item tooltips only, and
+    -- hide the material breakdown, and on Ctrl for the detail lines (Detail),
+    -- while hovering. Item tooltips only, and
     -- never in combat or with secret data in them: a redraw started by an
     -- addon can't touch the game's secret values (Midnight), and the game
     -- blames Goldsmith for the error (2026-10-08).
@@ -2872,7 +3018,7 @@ function addon:InitializePricing()
     local modifierFrame = CreateFrame("Frame")
     modifierFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
     modifierFrame:SetScript("OnEvent", function(_, _, key)
-        if key ~= "LSHIFT" and key ~= "RSHIFT" then return end
+        if key ~= "LSHIFT" and key ~= "RSHIFT" and key ~= "LCTRL" and key ~= "RCTRL" then return end
         for _, tooltip in ipairs({ GameTooltip, ItemRefTooltip }) do
             if SafeToRedraw(tooltip) then
                 tooltip:RefreshData()

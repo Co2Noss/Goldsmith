@@ -1581,24 +1581,27 @@ function addon:GetItemDetails(name, itemID)
         end)
         d.yours = itemID and addon:GetCraftedCost(itemID)
     end
+    -- This quality, like the item tooltip (by name if nothing has its ID)
     if not recipe or d.material then
-        d.paid, d.paidSource = addon:GetOwnCost(name)
+        d.paid, d.paidSource = addon:GetOwnCost(name, nil, itemID)
+        if not d.paid then d.paid, d.paidSource = addon:GetOwnCost(name) end
     end
-    -- Not crafted yet: the estimated cost. Some of what you hold gathered:
-    -- what you spent, gathered ones free (all free: no break-even, see
-    -- GetHeldCashCost)
+    -- Not crafted yet: the estimated cost. Gathered ones count at their AH
+    -- price, as in every cost (user, 2026-10-11: "we are looking for cost
+    -- not spent"; they were free here). All gathered: no break-even, since
+    -- selling them at any price is gold you didn't have (2026-10-09).
     local paid = d.paid
-    if not d.yours and (not recipe or d.material) then
-        local cash, bought, boughtAt, free = addon:GetHeldCashCost(name)
-        if cash then
-            d.cash = { unit = cash, bought = bought, boughtAt = boughtAt, free = free }
-            paid = cash > 0 and cash or nil
-            d.free = cash <= 0
-        end
+    if d.paidSource == "gathered" then
+        paid = nil
+        d.free = true
     end
-    local basis = d.yours or paid or d.estimated
-    d.breakEvenFrom = (d.yours and "yours") or (d.cash and paid and "yours") or (paid and "paid")
-        or (d.estimated and "estimated")
+    -- A material you also craft: what yours cost you covers your crafts and
+    -- purchases together (shown as "Yours cost you"); the crafts alone made
+    -- Mote of Light's break-even 2.34g against 0.60g (2026-10-11)
+    local yours = (not d.material) and d.yours or nil
+    local basis = yours or paid or (not d.free and d.estimated) or nil
+    d.breakEvenFrom = (yours and "yours") or (paid and "paid")
+        or (basis and "estimated")
     d.breakEven = basis and basis / (1 - AH_CUT)
 
     local sold = SalesByItem("All")[name]

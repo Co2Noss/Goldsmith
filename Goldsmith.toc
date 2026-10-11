@@ -28,6 +28,7 @@ Minimap.lua
 Overview.lua
 Crafts.lua
 CraftDone.lua
+OrderCost.lua
 Queue.lua
 QueueTab.lua
 Items.lua
