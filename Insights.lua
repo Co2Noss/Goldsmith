@@ -78,7 +78,11 @@ function addon:WhyNotRecommended(recipe, row, shownExpansions)
     local itemID = row.itemID or recipe.outputItemID
     local expansion = itemID and addon:GetItemExpansion(itemID)
     if not expansion then return "The game hasn't loaded this item yet." end
-    if expansion ~= addon:GetCurrentExpansion()
+    -- The recipe's expansion too: the game tags some old items as current
+    -- (Relic of the Past II, made by Classic to Kul Tiran recipes, was
+    -- recommended at +256g, 2026-10-11)
+    local current = addon:GetCurrentExpansion()
+    if (expansion ~= current or addon:GetRecipeExpansion(recipe) ~= current)
         and not (shownExpansions and addon:IsExpansionShown(addon:GetRecipeExpansion(recipe))) then
         return "From an older expansion. Its listings often sit unsold, so the profit may not be real. Pick its expansion at the top to judge it on its sales."
     end
@@ -140,6 +144,7 @@ end
 local function MakesCurrentItem(recipe)
     return recipe.outputItemID ~= nil
         and addon:GetItemExpansion(recipe.outputItemID) == addon:GetCurrentExpansion()
+        and addon:GetRecipeExpansion(recipe) == addon:GetCurrentExpansion()
         and not addon:IsSalvageRecipe(recipe)
 end
 
