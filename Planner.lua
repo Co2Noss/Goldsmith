@@ -62,6 +62,18 @@ local function SurePerCraft(recipe, outputPerCraft)
     return outputPerCraft
 end
 
+-- The planner's box is in crafts (user, 2026-10-12: "we usually think in
+-- crafts"); plans are still built for a number of items. Items to ask
+-- BuildPlan for to get exactly `crafts` crafts, and the crafts `items`
+-- items take. Run with the crafter's stats (WithCharacter).
+function addon:ItemsForCrafts(recipe, crafts)
+    return crafts * SurePerCraft(recipe, (GetCraftNumbers(recipe)))
+end
+
+function addon:CraftsForItems(recipe, items)
+    return WholeCrafts(items, SurePerCraft(recipe, (GetCraftNumbers(recipe))))
+end
+
 -- Materials needed for `crafts` crafts: the full amount for every craft.
 -- Starting a craft takes the full amount, and resourcefulness returns are
 -- luck (three crafts in a row can return nothing), so counting on them

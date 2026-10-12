@@ -1419,7 +1419,8 @@ local function CreatePlanScreen(parent)
     -- character's queue, or changes how many if it's already there
     screen.queue = UI.Button(screen, "Add to queue", 130, 26, function()
         local p = screen.plan
-        local quantity = tonumber(screen.qty:GetText()) or 0
+        -- The queue counts items: what these crafts are sure to make
+        local quantity = p and screen:PlannedItems() or 0
         if not p or quantity <= 0 then return end
         local concentrate = screen.tierInfo and screen.tierInfo.concentrate == true or false
         local updated = addon:AddToQueue(p.charKey, p.recipe.recipeID, quantity, p.tier, concentrate)
@@ -1441,25 +1442,37 @@ local function CreatePlanScreen(parent)
     end, "ANCHOR_BOTTOM")
     screen.subtitle:SetPoint("RIGHT", screen.queue, "LEFT", -10, 0)
 
+    -- How many crafts, not items (user, 2026-10-12: "we usually think in
+    -- crafts"; the line beside it says what they make). Remembered per
+    -- recipe in ui.planCrafts; ui.planQty (items) was the old box.
+    ui.planCrafts = ui.planCrafts or {}
     local makeLabel = UI.Text(screen, "body", "muted")
     makeLabel:SetPoint("TOPLEFT", 2, -44)
-    makeLabel:SetText("Make")
-    screen.qty = UI.NumberBox(screen, 70, function(quantity)
-        if screen.plan and quantity and quantity > 0 then ui.planQty[screen.plan.recipe.recipeID] = quantity end
+    makeLabel:SetText("Crafts")
+    screen.qty = UI.NumberBox(screen, 70, function(crafts)
+        if screen.plan and crafts and crafts > 0 then ui.planCrafts[screen.plan.recipe.recipeID] = crafts end
         screen.allMade = nil
         screen:Update()
     end)
     screen.qty:SetPoint("LEFT", makeLabel, "RIGHT", 10, 0)
 
+    -- Items for the crafts in the box (what they're sure to make)
+    function screen:PlannedItems(crafts)
+        local p = screen.plan
+        crafts = crafts or tonumber(screen.qty:GetText()) or 0
+        if not p or crafts <= 0 then return 0 end
+        return addon:WithCharacter(p.charKey, addon.ItemsForCrafts, addon, p.recipe, crafts)
+    end
+
     -- Crafts from this screen's Craft button finished or stopped
-    -- (CraftDone.lua): what was made comes off Make, so the plan is for
-    -- what's left (Make 15, 5 made: Make 10). All made: Make 0, and the
-    -- plan says so instead of offering to craft it all again.
-    function screen:CraftsDone(recipeID, made)
-        if not (screen.plan and screen.plan.recipe.recipeID == recipeID) or made <= 0 then return end
-        local left = math.max((tonumber(screen.qty:GetText()) or 0) - made, 0)
+    -- (CraftDone.lua): they come off the box, so the plan is for what's
+    -- left (3 crafts, 1 done: 2). All done: 0, and the plan says so
+    -- instead of offering to craft it all again.
+    function screen:CraftsDone(recipeID, made, crafts)
+        if not (screen.plan and screen.plan.recipe.recipeID == recipeID) or (crafts or 0) <= 0 then return end
+        local left = math.max((tonumber(screen.qty:GetText()) or 0) - crafts, 0)
         screen.qty:SetText(tostring(left))
-        if left > 0 then ui.planQty[recipeID] = left end
+        if left > 0 then ui.planCrafts[recipeID] = left end
         screen.allMade = left == 0 or nil
         screen:Update()
     end
@@ -1599,7 +1612,7 @@ local function CreatePlanScreen(parent)
             local e = (self.picked and self.yours) and nil or self.entry
             if self.picked and not self.yours then return end
             addon:WithCharacter(p.charKey, addon.SetPlanMix, addon, p.recipe, base, e,
-                tonumber(screen.qty:GetText()) or 0)
+                screen:PlannedItems())
             screen:Update()
         end)
         row.hit = hit
@@ -1850,7 +1863,7 @@ local function CreatePlanScreen(parent)
     screen.craft = UI.Button(summary, "Craft", 170, 28, function()
         local state, p = screen.craftState, screen.plan
         if not (state and state.enabled and p) then return end
-        -- So its crafts come off Make when they're done (CraftsDone)
+        -- So its crafts come off the box when they're done (CraftsDone)
         state.fromPlan = true
         PerformCraftState(state, p.recipe, function()
             if screen.plan == p and screen:IsVisible() then screen:Update() end
@@ -1949,11 +1962,15 @@ local function CreatePlanScreen(parent)
         SetCraftState(nil)
     end
 
+    -- quantity: items (a to-do or "make more" decides in items), turned
+    -- into the crafts they take; else the crafts last planned, or 1
     function screen:Open(p, quantity)
         screen.plan = p
-        local saved = quantity or ui.planQty[p.recipe.recipeID]
-        screen.qty:SetText(tostring(saved or math.max(math.floor(p.recipe.outputQty), 1)))
-        if quantity then ui.planQty[p.recipe.recipeID] = quantity end
+        local crafts = quantity and quantity > 0
+            and addon:WithCharacter(p.charKey, addon.CraftsForItems, addon, p.recipe, quantity)
+        crafts = crafts or ui.planCrafts[p.recipe.recipeID] or 1
+        screen.qty:SetText(tostring(crafts))
+        if quantity then ui.planCrafts[p.recipe.recipeID] = crafts end
         screen.list:ScrollToTop()
     end
 
@@ -1969,7 +1986,7 @@ local function CreatePlanScreen(parent)
         screen.baseTierInfo = tierInfo
         if tierInfo then
             tierInfo = addon:WithCharacter(p.charKey, addon.ChooseMix, addon, recipe, tierInfo,
-                tonumber(screen.qty:GetText()) or 0)
+                screen:PlannedItems())
         end
         screen.tierInfo = tierInfo
         screen.tierItemID = tierInfo and tierInfo.itemID or recipe.outputItemID
@@ -1991,12 +2008,12 @@ local function CreatePlanScreen(parent)
         screen.subtitle:SetText(table.concat(sub, ", "))
         screen:UpdateMixes(tierInfo)
 
-        local quantity = tonumber(screen.qty:GetText()) or 0
+        local quantity = screen:PlannedItems()
         if quantity <= 0 then
             screen.current = nil
             screen.list:SetItems({})
             screen.crafts:SetText("")
-            ClearSummary(screen.allMade and "All made. Enter a number to make more." or "Enter how many to make.")
+            ClearSummary(screen.allMade and "All crafted. Enter a number to craft more." or "Enter how many crafts.")
             return
         end
 
@@ -2004,7 +2021,7 @@ local function CreatePlanScreen(parent)
             true, tierInfo)
         -- With concentration, plan only the crafts it covers now, like the
         -- Craft button: 2 crafts were planned and shopped for with enough
-        -- for 1 (user, 2026-10-12). The Make box keeps your number.
+        -- for 1 (user, 2026-10-12). The box keeps your number.
         local concLimit
         if tierInfo and tierInfo.concentrate then
             local current = p.charKey == addon.charKey and addon:GetConcentration(recipe.profession)
@@ -2015,11 +2032,22 @@ local function CreatePlanScreen(parent)
                 local affordable = current >= full and (math.floor((current - full) / expected) + 1) or 0
                 if affordable > 0 and plan.crafts > affordable then
                     concLimit = { crafts = affordable, current = current }
-                    local q = math.max(math.floor(quantity * affordable / plan.crafts), 1)
+                    local q = screen:PlannedItems(affordable)
                     local capped = addon:WithCharacter(p.charKey, addon.BuildPlan, addon, recipe, q, true, tierInfo)
-                    while capped.crafts > affordable and q > 1 do
-                        q = q - 1
-                        capped = addon:WithCharacter(p.charKey, addon.BuildPlan, addon, recipe, q, true, tierInfo)
+                    -- The mix for the crafts planned, not the number typed:
+                    -- Make 30 picked one using less of the gold dust you
+                    -- hold, though 2 crafts were planned (user, 2026-10-12)
+                    local base = screen.baseTierInfo
+                    local repick = base and addon:WithCharacter(p.charKey, addon.ChooseMix, addon, recipe, base, q)
+                    if repick and repick.scenario ~= tierInfo.scenario then
+                        local again = addon:WithCharacter(p.charKey, addon.BuildPlan, addon, recipe, q, true, repick)
+                        local full2 = repick.scenario and repick.scenario.concentration or repick.concentration
+                        local each2 = math.max(repick.concentration or full2 or 1, 1)
+                        local fits = full2 and current >= full2 and (math.floor((current - full2) / each2) + 1) or 0
+                        if again.crafts <= fits then
+                            tierInfo, capped = repick, again
+                            screen.tierInfo = repick
+                        end
                     end
                     plan = capped
                 elseif affordable == 0 then
@@ -2030,11 +2058,10 @@ local function CreatePlanScreen(parent)
         screen.current = plan
         local nodes = addon:FlattenPlan(plan)
         screen.list:SetItems(nodes)
-        screen.crafts:SetFormattedText("%d craft%s, about %.1f made", plan.crafts,
-            plan.crafts == 1 and "" or "s", plan.expectedOutput)
+        screen.crafts:SetFormattedText("about %.1f made", plan.expectedOutput)
         if concLimit and concLimit.crafts > 0 then
             screen.crafts:SetText(screen.crafts:GetText() .. addon:Colorize(string.format(
-                "  (your %d concentration covers %d craft%s now)", concLimit.current, concLimit.crafts,
+                "  (planned %d: your %d concentration covers %d craft%s now)", plan.crafts, concLimit.current, concLimit.crafts,
                 concLimit.crafts == 1 and "" or "s"), "warning"))
         elseif concLimit then
             screen.crafts:SetText(screen.crafts:GetText() .. addon:Colorize(string.format(
@@ -2116,7 +2143,8 @@ local function CreatePlanScreen(parent)
                 warn = level ~= addon.SELL_LEVEL.sells
             end
             if plan.demand and plan.demand > 0 then
-                local days = quantity / plan.demand
+                local made = plan.expectedOutput or quantity
+                local days = made / plan.demand
                 local worth
                 if days < 1 then
                     worth = "less than a day's worth"
@@ -2126,7 +2154,7 @@ local function CreatePlanScreen(parent)
                     worth = string.format("about %.0f days' worth", days)
                 end
                 table.insert(parts, string.format("%s about %s a day (%s): %d is %s.",
-                    level and "You sell" or "Sells", addon:FormatDemand(plan.demand), plan.demandSource or "?", quantity, worth))
+                    level and "You sell" or "Sells", addon:FormatDemand(plan.demand), plan.demandSource or "?", math.floor(made + 0.5), worth))
                 warn = warn or days > PLAN_DAYS_WARN
             end
             screen.demandLine:SetText(table.concat(parts, " "))
@@ -2725,7 +2753,8 @@ end
 -- its item page
 local function RowMenu(item)
     local recipe = item.recipe
-    local quantity = GoldsmithDB.ui2.planQty and GoldsmithDB.ui2.planQty[recipe.recipeID]
+    local planned = GoldsmithDB.ui2.planCrafts and GoldsmithDB.ui2.planCrafts[recipe.recipeID]
+    local quantity = planned and addon:WithCharacter(item.charKey, addon.ItemsForCrafts, addon, recipe, planned)
         or math.max(math.floor(recipe.outputQty or 1), 1)
     local concentrate = item.info and item.info.concentrate == true or false
     local tier = item.info and item.info.tier
@@ -2974,7 +3003,7 @@ local function Create(parent)
     view.plan = CreatePlanScreen(parent)
     view.salvage = CreateSalvageScreen(parent)
     -- The planner's crafts finished or stopped (CraftDone.lua)
-    addon.PlanCraftsDone = function(recipeID, made) view.plan:CraftsDone(recipeID, made) end
+    addon.PlanCraftsDone = function(recipeID, made, crafts) view.plan:CraftsDone(recipeID, made, crafts) end
 
     -- Back to the list shows the row you were at, not where the list was
     -- left (user, 2026-10-11: from a to-do item or History, Back meant

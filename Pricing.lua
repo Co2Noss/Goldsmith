@@ -1796,7 +1796,10 @@ function addon:GetCraftPreview(tx, outputItemID)
     local used, _, outputID = FormMaterials(recipeID, tx)
     if not (used and next(used)) then return nil end
     local full, complete, mats = ValueMaterials(used, outputID, true)
-    local recipe = GoldsmithDB.recipes[recipeID]
+    -- A recipe not learned yet too: without it, Amani Cornucopia was
+    -- counted as making 1, not 2 (1,471g each against 682.01g in
+    -- Crafts, user 2026-10-12)
+    local recipe = GoldsmithDB.recipes[recipeID] or (GoldsmithDB.unlearned and GoldsmithDB.unlearned[recipeID])
     local itemID = outputItemID or outputID or (recipe and recipe.outputItemID)
     -- A bound box is worth what's inside once you've opened one
     local bound = itemID and addon:CanAuction(itemID) == false

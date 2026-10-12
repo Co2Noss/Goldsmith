@@ -234,7 +234,7 @@ local function Finish()
     ShowToast(b)
     -- The planner takes what was made off its Make box (the queue counts
     -- its own)
-    if b.fromPlan and addon.PlanCraftsDone then addon.PlanCraftsDone(b.recipeID, b.made) end
+    if b.fromPlan and addon.PlanCraftsDone then addon.PlanCraftsDone(b.recipeID, b.made, b.done) end
     local _, _, _, profit = Describe(b)
     addon:Notify("info", "%s: %d %s%s.", b.done >= b.crafts and "Craft complete" or "Crafting stopped",
         b.made, b.name, profit and (", " .. profit:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):lower()) or "")
