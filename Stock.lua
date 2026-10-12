@@ -226,7 +226,7 @@ Deals = function(prof)
     -- A list rather than pairs(), so the work can wait for a frame
     local history = GoldsmithDB.priceHistory
     for n, itemID in ipairs(addon:Keys(history)) do
-        if n % 64 == 0 then addon:Yield() end
+        if n % 8 == 0 then addon:Yield() end
         for day in pairs(history[itemID] or {}) do
             if not earliest or day < earliest then earliest = day end
         end

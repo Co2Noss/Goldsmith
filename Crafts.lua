@@ -3145,6 +3145,7 @@ local function Refresh(v, state)
         end
         local kept = {}
         for _, item in ipairs(items) do
+            addon:Yield()
             if not item.whyNot and not item.info.partial and GoodUse(item) then table.insert(kept, item) end
         end
         items = kept
@@ -3160,7 +3161,10 @@ local function Refresh(v, state)
     -- Hide gear (Show menu): salvage is never gear
     if ui.craftsGear == "hide" and not focus then
         local kept = {}
+        -- A frame may pass between items: on a slower laptop the steps
+        -- from here to the list took 23.6 ms in one frame (2026-10-12)
         for _, item in ipairs(items) do
+            addon:Yield()
             if item.salvage or not addon:IsGear(item.itemID) then table.insert(kept, item) end
         end
         items = kept
@@ -3171,6 +3175,7 @@ local function Refresh(v, state)
     -- Searching ignores the expansions picked at the top, so those go
     -- first (user, 2026-10-11: "transmute" listed every expansion's)
     for _, item in ipairs(items) do
+        addon:Yield()
         item.pinned = searching and addon:IsExpansionShown(item.salvage and addon:GetItemExpansion(item.itemID)
             or addon:GetRecipeExpansion(item.recipe)) or nil
     end

@@ -163,7 +163,7 @@ local function GetOutputRecipes()
     for _, key in ipairs(addon:Keys(GoldsmithDB.characters)) do
         local tierData = GoldsmithDB.characters[key].tierData
         for n, recipeID in ipairs(addon:Keys(tierData)) do
-            if n % 64 == 0 then addon:Yield() end
+            if n % 8 == 0 then addon:Yield() end
             local td = tierData[recipeID]
             local recipe = GoldsmithDB.recipes[recipeID]
             if recipe and td then
@@ -1396,7 +1396,9 @@ local function BuildItemIndex()
     for _, key in ipairs(addon:Keys(GoldsmithDB.characters)) do
         local tierData = GoldsmithDB.characters[key].tierData
         for n, recipeID in ipairs(addon:Keys(tierData)) do
-            if n % 64 == 0 then addon:Yield() end
+            -- Every 8, not 64: each is a recipe's tier mixes, and 64 of them
+            -- made a 33.8 ms frame on an older laptop (2026-10-12)
+            if n % 8 == 0 then addon:Yield() end
             local td = tierData[recipeID]
             local recipe = GoldsmithDB.recipes[recipeID]
             if recipe and td then
@@ -1413,7 +1415,7 @@ local function BuildItemIndex()
         end
     end
     for n, recipeID in ipairs(addon:Keys(GoldsmithDB.recipes)) do
-        if n % 64 == 0 then addon:Yield() end
+        if n % 8 == 0 then addon:Yield() end
         local recipe = GoldsmithDB.recipes[recipeID] or { reagents = {} }
         Add(recipe.outputItemID, recipe.outputName, { recipe = recipe, profession = recipe.profession })
         for _, slot in ipairs(recipe.reagents) do
