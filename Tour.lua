@@ -40,13 +40,13 @@ local STEPS = {
           return view and view.tiles[1], view and view.tiles[#view.tiles]
       end },
     { tab = "overview", title = "Do this next",
-      text = "The best things to do right now (Getting started while you set up): what to craft, with concentration and without. Only solid bets show here, things that sell. Click one to open its plan.",
+      text = "The best things to do right now (Getting started while you set up): what to craft, with concentration and without. Only solid bets show here, things that sell. Click one to open its plan. \"followed\" by the title adds up what the suggestions you crafted have made.",
       target = function()
           local view = Screen("overview")
           return view and view.actionsTitle:GetParent()
       end },
     { tab = "overview", title = "Charts",
-      text = "Profit by day, total gold, and gold per hour of goldmaking. The arrows switch between them.",
+      text = "Profit by day, total gold, and gold per hour of goldmaking. The arrows switch between them. On Total gold, \"Set a goal\" gives you a gold goal to work toward.",
       target = function()
           local view = Screen("overview")
           return view and view.chartTitle:GetParent()
@@ -58,7 +58,7 @@ local STEPS = {
           return view and view.professionsNote:GetParent()
       end },
     { tab = "crafts", title = "Crafts",
-      text = "Everything you can craft: cost from your own crafting stats, AH price, profit, and how well it sells. Click a craft for a shopping plan: what to buy, craft or mill, in what order.",
+      text = "Everything you can craft: cost from your own crafting stats, AH price, profit, and how well it sells. Click a craft to plan it: how many crafts, what to buy, craft or mill, and in what order. The same cost and profit show in the game's profession window, under the reagents.",
       target = function()
           local view = Screen("crafts")
           return view and view.list
@@ -88,7 +88,7 @@ local STEPS = {
       text = "A card per character: professions, concentration, craft cooldowns and a to-do list. Click a to-do to open its plan. Exclude a bank alt so it doesn't count.",
       target = function() return select(2, Screen("characters")) end },
     { title = "Settings",
-      text = "Costs, prices, item tooltips, chat messages and characters, plus Help. Hold Ctrl over any hover to see what its numbers mean.\n\nThat's the tour. /gsm tour starts it again.",
+      text = "Prices, when a craft is worth suggesting, item tooltips, chat messages and characters, plus Help. Hold Ctrl over any hover to see what its numbers mean.\n\nThat's the tour. /gsm tour starts it again.",
       target = function() return Part("settings") end },
 }
 

@@ -892,17 +892,19 @@ local HELP_SECTIONS = {
       "/gsm, the Goldsmith button on the minimap, the addons button by the minimap, or a key of your own (Settings > Key to open Goldsmith)." },
     -- One line per tab, its name in the text color (Theme.lua loads first)
     { "The tabs", table.concat({
-        addon:Colorize("Overview", "text") .. ": how you're doing and what to do next.",
-        addon:Colorize("Crafts", "text") .. ": what you can make, with its cost, profit and how well it sells. Show picks Recommended, All crafts or Not learned yet (recipes worth going to learn), and can hide gear. Click a craft for a shopping plan.",
+        addon:Colorize("Overview", "text") .. ": how you're doing and what to do next. \"followed\" by Do this next adds up what the suggestions you crafted have made; Set a goal on the Total gold chart gives you a gold goal.",
+        addon:Colorize("Crafts", "text") .. ": what you can make, with its cost, profit and how well it sells. Show picks Recommended, All crafts or Not learned yet (recipes worth going to learn), and can hide gear. Click a craft to plan it: type how many crafts, and it shows what they make and what to buy. With concentration it plans only what yours covers now; Why this mix shows the material qualities compared, and clicking one uses it instead.",
         addon:Colorize("Queue", "text") .. ": crafts lined up to make, with one shopping list and a button that does the next step.",
         addon:Colorize("Items", "text") .. ": any item's page, and In my bags for everything you hold.",
         addon:Colorize("History", "text") .. ": every purchase, sale, craft and deposit; right-click an entry to fix it.",
         addon:Colorize("Characters", "text") .. ": a to-do list for each character, its craft cooldowns, and which characters count.",
       }, "\n") },
+    { "In the game's windows",
+      "Under the reagents in a profession window, Goldsmith shows what your materials cost and the profit, the same as on Crafts; hover it for the breakdown. On a crafting order, only the materials you supply count, with the commission and rewards (a payout bag at what's usually inside). Above Goldsmith's Craft button, a note reminds you when a crafting buff such as Everburning Ignition or Shattered Essence is off." },
     { "Hovers and clicks",
       "Hovers show the numbers. Hold Ctrl over one to see what each number means, how it's worked out and what clicking does; let go and they're gone. The line along the bottom of the window says what clicking, right-clicking and shift-clicking do on the screen you're on. A gold Filtered button by Settings means something is hiding part of the list: click it to see everything." },
     { "When a suggestion isn't for you",
-      "The x on a Do this next card, or right-clicking a to-do on Characters, hides a suggestion for a day; it comes back after that if it's still a good bet, and the \"hidden\" button brings it back sooner. To hide something for good, right-click it on Crafts and pick Ignore; to undo that, untick it in Settings > Ignored items, or tick Show ignored in the Crafts Show menu and right-click it. Deleted something in History by mistake? It stays greyed in the list until you leave History: click it to undo." },
+      "The x on a Do this next card, or right-clicking a to-do on Characters, hides a suggestion for a day; it comes back after that if it's still a good bet, and the \"hidden\" button brings it back sooner. To hide something for good, right-click it on Crafts and pick Ignore; to undo that, untick it in Settings > Ignored items, or tick Show ignored in the Crafts Show menu and right-click it. Deleted something in History by mistake? It stays greyed in the list until you leave History: click it to undo. Too many small suggestions? Settings > Worth a to-do at sets the least gold a batch must make." },
     { "Item tooltips",
       "Show your cost, profit and break-even price. Hold Shift for each material's cost. Settings > Item tooltips makes them shorter or turns them off." },
     { "Recommended: Auctionator",
@@ -928,19 +930,51 @@ function addon:CreateHelpPanel(parent, settings)
     local close = UI.IconButton(panel, 26, "X", "Close", function() panel:Hide() end, { hoverColor = "loss" })
     close:SetPoint("TOPRIGHT", -8, -8)
 
+    -- The sections scroll (mouse wheel or the bar) between the title and
+    -- the buttons: at 1920x1080 the page ran off the bottom of the screen
+    -- (user, 2026-10-12)
+    local SCROLL_BAR = 8
+    local scroll = CreateFrame("ScrollFrame", nil, panel)
+    scroll:SetPoint("TOPLEFT", 16, -46)
+    scroll:SetPoint("BOTTOMRIGHT", -(16 + SCROLL_BAR + 6), 46)
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(HELP_WIDTH - 32 - SCROLL_BAR - 6, 1)
+    scroll:SetScrollChild(content)
+    local bar = CreateFrame("Slider", nil, panel, "BackdropTemplate")
+    bar:SetOrientation("VERTICAL")
+    bar:SetWidth(SCROLL_BAR)
+    bar:SetPoint("TOPLEFT", scroll, "TOPRIGHT", 6, 0)
+    bar:SetPoint("BOTTOMLEFT", scroll, "BOTTOMRIGHT", 6, 0)
+    UI.Style(bar, "panelRaised")
+    local thumb = bar:CreateTexture(nil, "OVERLAY")
+    thumb:SetColorTexture(addon:Color("borderStrong"))
+    thumb:SetSize(SCROLL_BAR, 40)
+    bar:SetThumbTexture(thumb)
+    bar:SetMinMaxValues(0, 0)
+    bar:SetValue(0)
+    bar:SetScript("OnValueChanged", function(_, value) scroll:SetVerticalScroll(value) end)
+    local function Wheel(_, delta)
+        local low, high = bar:GetMinMaxValues()
+        bar:SetValue(math.max(low, math.min(high, bar:GetValue() - delta * 40)))
+    end
+    for _, f in ipairs({ scroll, bar }) do
+        f:EnableMouseWheel(true)
+        f:SetScript("OnMouseWheel", Wheel)
+    end
+
     local above
     local texts = {}
     for _, section in ipairs(HELP_SECTIONS) do
-        local heading = UI.Text(panel, "body", "text")
+        local heading = UI.Text(content, "body", "text")
         if above then
             heading:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -14)
         else
-            heading:SetPoint("TOPLEFT", 16, -50)
+            heading:SetPoint("TOPLEFT", 0, 0)
         end
         heading:SetText(section[1])
-        local text = UI.Text(panel, "small", "muted")
+        local text = UI.Text(content, "small", "muted")
         text:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", 0, -4)
-        text:SetWidth(HELP_WIDTH - 32)
+        text:SetWidth(HELP_WIDTH - 32 - SCROLL_BAR - 6)
         text:SetWordWrap(true)
         text:SetSpacing(2)
         text:SetText(section[2])
@@ -965,12 +999,22 @@ function addon:CreateHelpPanel(parent, settings)
     end)
     back:SetPoint("BOTTOMRIGHT", -16, 12)
 
-    -- Tall enough for the text, however it wrapped: the title, each
-    -- heading and paragraph with the gaps between them, and the buttons
+    -- Tall enough for the text, however it wrapped, but no taller than
+    -- the Goldsmith window below the settings panel's top; the rest
+    -- scrolls (the bar only shows when there's something to scroll)
     panel:SetScript("OnShow", function()
-        local height = 50 + 52 + (#HELP_SECTIONS - 1) * 14 + #HELP_SECTIONS * 4
-        for _, fs in ipairs(texts) do height = height + fs:GetStringHeight() end
+        local textHeight = (#HELP_SECTIONS - 1) * 14 + #HELP_SECTIONS * 4
+        for _, fs in ipairs(texts) do textHeight = textHeight + fs:GetStringHeight() end
+        content:SetHeight(textHeight)
+        local top = panel:GetTop() or settings:GetTop()
+        local room = (top and parent:GetBottom()) and (top - parent:GetBottom() - 8) or 600
+        local height = math.min(46 + textHeight + 46 + 4, room)
         panel:SetHeight(height)
+        local overflow = math.max(textHeight - (height - 92), 0)
+        bar:SetMinMaxValues(0, overflow)
+        bar:SetValue(0)
+        scroll:SetVerticalScroll(0)
+        bar:SetShown(overflow > 0)
     end)
     return panel
 end
