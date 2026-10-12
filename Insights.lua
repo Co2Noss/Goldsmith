@@ -598,12 +598,15 @@ function addon:GetBestCrafts(prof, count)
                             make = SLOW_MAX_BATCH
                             makeReason = makeReason .. string.format(", at most %d: it sells slowly", SLOW_MAX_BATCH)
                         end
-                        table.insert(list, {
-                            key = addon:CraftKey(recipeID, row),
-                            recipe = recipe, row = row, charKey = charKey, itemID = itemID,
-                            profit = row.profit, margin = row.margin, demand = row.demand, have = have,
-                            make = make, makeReason = makeReason, outputPerCraft = outputPerCraft,
-                        })
+                        -- The whole batch must make "Worth a to-do at"
+                        if row.profit * make >= (addon:Setting("minLine") or 0) * 10000 then
+                            table.insert(list, {
+                                key = addon:CraftKey(recipeID, row),
+                                recipe = recipe, row = row, charKey = charKey, itemID = itemID,
+                                profit = row.profit, margin = row.margin, demand = row.demand, have = have,
+                                make = make, makeReason = makeReason, outputPerCraft = outputPerCraft,
+                            })
+                        end
                     end
                 end
             end

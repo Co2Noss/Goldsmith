@@ -7,6 +7,9 @@ local UI = addon.UI
 -- GoldsmithDB.settings; anything not set uses its default:
 --   priceSource - "auto" (whichever is newer), "auctionator" or "tsm"
 --   minROI      - ROI (%) a craft needs to count as worth crafting
+--   minLine     - gold a suggested batch must make in all to be a to-do
+--                 (user, 2026-10-12: Cooking filled the list with
+--                 +0.36g Quick Sandwiches)
 --   dealPercent - how far below its usual price a material counts as cheap
 --   heldDays    - days unsold before a crafted item is held too long
 --   keepDays    - days of transactions and daily gold kept; 0 = forever
@@ -24,6 +27,7 @@ local UI = addon.UI
 local DEFAULTS = {
     priceSource = "auto",
     minROI = 15,
+    minLine = 10,
     dealPercent = 10,
     heldDays = 7,
     keepDays = 0,
@@ -496,6 +500,7 @@ local CHOICES = {
         { value = "tsm", label = "Prefer TSM" },
     },
     minROI = {},
+    minLine = {},
     dealPercent = {},
     heldDays = {},
     keepDays = {
@@ -518,6 +523,10 @@ local CHOICES = {
 for _, value in ipairs({ 0, 5, 10, 15, 20, 30, 50 }) do
     table.insert(CHOICES.minROI, { value = value,
         label = value == 0 and "Any profit" or string.format("%d%%", value) })
+end
+for _, value in ipairs({ 0, 5, 10, 25, 50, 100 }) do
+    table.insert(CHOICES.minLine, { value = value,
+        label = value == 0 and "Any profit" or string.format("%dg a batch", value) })
 end
 for _, value in ipairs({ 5, 10, 15, 20, 25 }) do
     table.insert(CHOICES.dealPercent, { value = value, label = string.format("%d%% below usual", value) })
@@ -555,6 +564,11 @@ local HELP = {
         "The ROI (profit as a share of what the craft costs) a craft needs to count as worth doing.",
         "Used by Recommended on the Crafts tab and by Best crafts right now on the Overview.",
         "Higher leaves room for undercuts and slow sales; 15% is a good start.",
+    },
+    minLine = {
+        "Worth a to-do at",
+        "The gold a suggested batch must make in all to be a to-do (the profit each times how many to make).",
+        "Used by Do this next and the to-do lists on the Overview and Characters tabs. Cheap, quick crafts like Cooking's earn a few silver a batch and filled the list.",
     },
     dealPercent = {
         "Cheap materials",
@@ -694,7 +708,7 @@ local function SetKeepDays(value, panel)
 end
 
 local COLUMNS = {
-    { title = "Crafting and prices", rows = { "priceSource", "minROI", "dealPercent", "heldDays", "ignored", "keepDays" } },
+    { title = "Crafting and prices", rows = { "priceSource", "minROI", "minLine", "dealPercent", "heldDays", "ignored", "keepDays" } },
     { title = "Display", rows = { "tooltips", "chat", "characters", "showMinimap", "keybind" } },
 }
 
@@ -728,6 +742,7 @@ function addon:CreateSettingsPanel(parent)
 
     rows.priceSource = ChoiceRow(panel, "priceSource", "Price source", "Where AH prices come from when both Auctionator and TSM have one.")
     rows.minROI = ChoiceRow(panel, "minROI", "Worth crafting at", "The ROI a craft needs for Recommended and Best crafts.")
+    rows.minLine = ChoiceRow(panel, "minLine", "Worth a to-do at", "The gold a suggested batch must make in all.")
     rows.dealPercent = ChoiceRow(panel, "dealPercent", "Cheap materials", "How far below usual a material's price counts as cheap.")
     rows.heldDays = ChoiceRow(panel, "heldDays", "Held too long", "Days unsold before a crafted item is flagged.")
     rows.keepDays = Row(panel, "keepDays", "Keep history for", "How long purchases, sales and deposits are kept.")
