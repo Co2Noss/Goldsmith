@@ -816,12 +816,18 @@ function addon:PreferHeldMix(recipe, tierInfo, quantity)
         for _, slot in ipairs(qslots) do score = score + SlotScore(slot, addon:ScenarioHighUnits(scenario, slot)) end
         return score
     end
+    -- A mix needing more concentration pays for it at what the picked mix
+    -- earns a point: all silver at 320 a craft beat buying 6 gold stones
+    -- for one at 316 (user, 2026-10-12: it used to be ruled out)
+    local function ConcentrationCharge(e)
+        if not (tierInfo.concentrate and e.concentration and tierInfo.concentration) then return 0 end
+        return math.max(e.concentration - tierInfo.concentration, 0) * crafts * (tierInfo.concentrationValue or 0)
+    end
 
     local same = {}
     for _, e in ipairs(tierInfo.scenarios) do
         if e.tier == tierInfo.tier and (e.concentrate == true) == (tierInfo.concentrate == true)
-            and (not tierInfo.concentrate or e.scenario == tierInfo.scenario
-                or (e.concentrationValue and e.concentration <= tierInfo.concentration)) then
+            and (not tierInfo.concentrate or e.scenario == tierInfo.scenario or e.concentrationValue) then
             table.insert(same, e)
         end
     end
@@ -829,7 +835,7 @@ function addon:PreferHeldMix(recipe, tierInfo, quantity)
     local best, bestScore = tierInfo, Score(tierInfo.scenario)
     local pickedScore = bestScore
     for _, e in ipairs(same) do
-        local score = Score(e.scenario)
+        local score = Score(e.scenario) + ConcentrationCharge(e)
         if score < bestScore then best, bestScore = e, score end
     end
 
@@ -885,6 +891,46 @@ function addon:PreferHeldMix(recipe, tierInfo, quantity)
     pick.scenarios, pick.heldPick = tierInfo.scenarios, true
     pick.demand, pick.demandSource, pick.saleRate = tierInfo.demand, tierInfo.demandSource, tierInfo.saleRate
     return pick
+end
+
+-- The mix to plan and craft with: the one you clicked in the planner's
+-- "Why this mix" panel (GoldsmithDB.ui2.planMix[recipeID] = { tier,
+-- concentrate, description }) while it still reaches that tier the same
+-- way, else PreferHeldMix's. The planner and the queue both use it, so
+-- crafting from either makes what the plan showed (user, 2026-10-12).
+function addon:ChooseMix(recipe, tierInfo, quantity)
+    if not tierInfo then return tierInfo end
+    local pick = addon:PreferHeldMix(recipe, tierInfo, quantity)
+    local saved = GoldsmithDB.ui2 and GoldsmithDB.ui2.planMix and GoldsmithDB.ui2.planMix[recipe.recipeID]
+    if not (saved and saved.tier == tierInfo.tier and saved.concentrate == (tierInfo.concentrate == true)) then
+        return pick
+    end
+    if pick.description == saved.description then return pick end
+    for _, e in ipairs(tierInfo.scenarios or {}) do
+        if e.tier == tierInfo.tier and (e.concentrate == true) == saved.concentrate
+            and e.description == saved.description and (not saved.concentrate or e.concentrationValue) then
+            local mine = {}
+            for k, v in pairs(e) do mine[k] = v end
+            mine.scenarios, mine.yourPick = tierInfo.scenarios, true
+            mine.demand, mine.demandSource, mine.saleRate = tierInfo.demand, tierInfo.demandSource, tierInfo.saleRate
+            return mine
+        end
+    end
+    return pick
+end
+
+-- Clicking a mix: remember it, or forget it when it's the one Goldsmith
+-- would pick anyway
+function addon:SetPlanMix(recipe, tierInfo, e, quantity)
+    local ui = GoldsmithDB.ui2
+    ui.planMix = ui.planMix or {}
+    local auto = addon:PreferHeldMix(recipe, tierInfo, quantity)
+    if not e or (auto and auto.description == e.description) then
+        ui.planMix[recipe.recipeID] = nil
+    else
+        ui.planMix[recipe.recipeID] = { tier = tierInfo.tier, concentrate = tierInfo.concentrate == true,
+            description = e.description }
+    end
 end
 
 _G.Goldsmith = addon

@@ -528,6 +528,8 @@ SlashCmdList["GOLDSMITH"] = function(msg)
         addon:ListRecipes()
     elseif cmd == "milling" then
         addon:ListMilling()
+    elseif cmd == "buffs" then
+        addon:PrintCraftBuffs()
     elseif cmd == "gathered" then
         addon:ListGathered()
     elseif cmd == "chars" then

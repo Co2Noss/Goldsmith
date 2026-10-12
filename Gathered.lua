@@ -143,6 +143,9 @@ local function BoxOpened(itemID, crafted)
         openingLoot = nil
         return
     end
+    -- When each was opened (Followed counts a box when it's opened)
+    box.openedAt = box.openedAt or {}
+    table.insert(box.openedAt, time())
     -- Your newest craft of the box: what this one cost
     local cost = addon:GetCraftedCost(itemID, 1)
     local loot = {}

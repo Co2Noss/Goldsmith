@@ -416,7 +416,8 @@ function addon:FollowedLabel(parent)
         for i = 1, math.min(#f.items, 8) do
             local s = f.items[i]
             local ir, ig, ib = addon:Color(addon:MoneyColor(s.profit))
-            tooltip:AddDoubleLine(string.format("%s  %d of %d sold", s.name, s.sold, s.made), Signed(s.profit),
+            tooltip:AddDoubleLine(string.format("%s  %d of %d %s", s.name, s.sold, s.made, s.opened and "opened" or "sold"),
+                Signed(s.profit),
                 0.9, 0.9, 0.9, ir, ig, ib)
             if s.expected and s.sold > 0 then
                 local er, eg, eb = addon:Color(s.heldUp and "profit" or "warning")
@@ -424,7 +425,7 @@ function addon:FollowedLabel(parent)
                     0.6, 0.6, 0.6, er, eg, eb)
             end
             if s.sold < s.made and s.days >= 1 then
-                tooltip:AddLine(string.format("    %d not sold after %d day%s", s.made - s.sold, s.days,
+                tooltip:AddLine(string.format("    %d not %s after %d day%s", s.made - s.sold, s.opened and "opened" or "sold", s.days,
                     s.days == 1 and "" or "s"), 0.6, 0.6, 0.6)
             end
         end

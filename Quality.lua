@@ -833,6 +833,9 @@ end
 
 -- Concentration budget
 --
+-- Professions with no concentration at all (their recipes never use it)
+addon.NO_CONCENTRATION = { Cooking = true }
+--
 -- Your current concentration for a profession, read from its currency.
 -- Returns current, max, and minutes until full (nil if unknown), or nil if
 -- the profession's concentration currency isn't known yet (open it once).
@@ -848,6 +851,80 @@ function addon:GetConcentration(profession)
         minutesToFull = (max - current) / perCycle * cycleMS / 60000
     end
     return current, max, minutesToFull
+end
+
+-- Crafting buffs
+--
+-- Some specializations have a buff that adds crafting stats while it's on:
+-- Blacksmithing's Everburning Ignition, Enchanting's Shattered Essence
+-- (from shattering a mote). Matched by part of the buff's name. A buff is
+-- only missed on a character once Goldsmith has seen it on them, so nobody
+-- without the specialization is told to turn on something they can't
+-- (saved in addon.char.craftBuffs[profession] = the buff's full name).
+-- Other professions get added here when one turns up (user, 2026-10-12).
+-- expansion: the only recipes it helps. Everburning Ignition is from The
+-- War Within's specialization: it raised Khaz Algar recipes' stats and
+-- left Midnight's alone (tested in game, 2026-10-12).
+local CRAFT_BUFFS = {
+    Blacksmithing = { "Ignition", expansion = 10 },
+    Enchanting = { "Shattered Essence" }, -- raises Midnight enchants too (tested, 2026-10-12)
+}
+
+-- Your buffs' names (pcall: a buff's details can be hidden in combat)
+local function PlayerBuffNames()
+    local names = {}
+    if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return names end
+    for i = 1, 255 do
+        local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+        if not ok or not aura then break end
+        -- :lower() fails on a hidden (secret) name, so those are skipped
+        local okName, name = pcall(function() return type(aura.name) == "string" and aura.name:lower() and aura.name end)
+        if okName and name then table.insert(names, name) end
+    end
+    return names
+end
+
+-- Returns the buff's name when it's off on this character, else nil.
+-- recipe: only when the buff helps that recipe (its expansion)
+function addon:MissingCraftBuff(profession, recipe)
+    local patterns = CRAFT_BUFFS[profession]
+    if not (patterns and addon.char) then return nil end
+    if recipe and patterns.expansion and addon:GetRecipeExpansion(recipe) ~= patterns.expansion then
+        addon:NoteCraftBuffs()
+        return nil
+    end
+    addon.char.craftBuffs = addon.char.craftBuffs or {}
+    for _, name in ipairs(PlayerBuffNames()) do
+        for _, pattern in ipairs(patterns) do
+            if name:find(pattern, 1, true) then
+                addon.char.craftBuffs[profession] = name
+                return nil
+            end
+        end
+    end
+    return addon.char.craftBuffs[profession]
+end
+
+-- Looks for every crafting buff (on any change to your buffs), so one is
+-- learned the first time it's on, wherever you are
+function addon:NoteCraftBuffs()
+    for profession in pairs(CRAFT_BUFFS) do addon:MissingCraftBuff(profession) end
+end
+local buffWatch = CreateFrame("Frame")
+buffWatch:RegisterUnitEvent("UNIT_AURA", "player")
+buffWatch:SetScript("OnEvent", function() addon:NoteCraftBuffs() end)
+
+-- /gsm buffs: your buffs now, and the crafting buffs Goldsmith knows
+function addon:PrintCraftBuffs()
+    local names = table.concat(PlayerBuffNames(), ", ")
+    print("|cFFFFD100Goldsmith|r your buffs: " .. (names ~= "" and names or "none"))
+    for profession in pairs(CRAFT_BUFFS) do
+        -- Checked first: it records the buff when it's on now
+        local off = addon:MissingCraftBuff(profession)
+        local seen = addon.char and addon.char.craftBuffs and addon.char.craftBuffs[profession]
+        print(string.format("  %s: %s", profession, seen and ("seen " .. seen .. (off and ", off now" or ", on now"))
+            or "not seen on this character yet"))
+    end
 end
 
 -- The best way to spend `budget` concentration on a profession's crafts.

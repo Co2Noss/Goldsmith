@@ -154,16 +154,17 @@ local function FillConcentrationTile(tile, conc)
     end
     tile:Set("Concentration", string.format("%d / %d", conc.current, conc.max), "conc", note)
     tile.tooltip = function(tooltip)
-        tooltip:AddLine("Concentration", 1, 1, 1)
+        -- A table: concentration, when it's full and what it's worth each in
+        -- its own column (user, 2026-10-12: the right side was hard to read)
+        local rows = {}
         for _, row in ipairs(conc.rows) do
             -- Out of 1000 goes without saying (user, 2026-10-10); a different
             -- maximum is still shown
             local amount = row.max == 1000 and tostring(math.floor(row.current))
                 or string.format("%d / %d", row.current, row.max)
-            tooltip:AddDoubleLine(
-                string.format("%s  %s%s", row.name, addon:ProfessionIconText(row.profession), row.profession),
-                string.format("%s, %s", amount, HoursText(row.minutesToFull)),
-                0.9, 0.9, 0.9, 0.91, 0.76, 0.35)
+            local full = HoursText(row.minutesToFull):gsub("^full in ", "")
+            table.insert(rows, { left = string.format("%s  %s%s", row.name, addon:ProfessionIconText(row.profession), row.profession),
+                0.9, 0.9, 0.9, cells = { { amount, 0.91, 0.76, 0.35 }, { full, 0.8, 0.8, 0.8 } } })
             -- What it's best spent on, rather than a bare "worth" (user,
             -- 2026-10-10: not sold on the formatting)
             if row.gain > 0 then
@@ -171,14 +172,21 @@ local function FillConcentrationTile(tile, conc)
                 local what = first and string.format("    %dx %s%s", first.crafts,
                     ItemText(first.row.itemID, first.recipe.outputName, first.row.tier, first.tierCount),
                     #row.plan > 1 and string.format(" +%d more", #row.plan - 1) or "") or "    best use"
-                tooltip:AddDoubleLine(what, Signed(row.gain) .. " extra", 0.6, 0.6, 0.6, 0.37, 0.81, 0.48)
+                table.insert(rows, { left = what, 0.6, 0.6, 0.6, cells = { [3] = { Signed(row.gain), 0.37, 0.81, 0.48 } } })
             end
             for _, c in ipairs(row.capped or {}) do
-                tooltip:AddDoubleLine("    held back: " .. ItemText(c.row.itemID, c.recipe.outputName, c.row.tier, c.tierCount),
-                    addon:FormatMoney(c.row.concentrationValue) .. " a point", 0.6, 0.6, 0.6, 0.91, 0.76, 0.35)
-                tooltip:AddLine("        " .. addon:HeldBackReason(c), 0.6, 0.6, 0.6, true)
+                table.insert(rows, { left = "    held back: " .. ItemText(c.row.itemID, c.recipe.outputName, c.row.tier, c.tierCount),
+                    0.6, 0.6, 0.6, cells = { [3] = { addon:FormatMoney(c.row.concentrationValue) .. " a point", 0.91, 0.76, 0.35 } } })
+                -- Why, with Ctrl (user, 2026-10-12: the hover was long);
+                -- without it Explain only notes something is left out
+                if addon:ExplanationsShown() then
+                    table.insert(rows, { line = "        " .. addon:HeldBackReason(c), 0.6, 0.6, 0.6, wrap = true })
+                else
+                    addon:Explain(tooltip, "")
+                end
             end
         end
+        UI.TooltipTable(tooltip, "Concentration", { "Now", "Full in", "Extra" }, rows)
         addon:Explain(tooltip, "Extra = profit on top of crafting the same things without concentration.", 0.6, 0.6, 0.6, true)
         addon:Explain(tooltip, "Alts' concentration is worked out from when you last logged in on them.", 0.6, 0.6, 0.6, true)
     end

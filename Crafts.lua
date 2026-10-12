@@ -1568,6 +1568,41 @@ local function CreatePlanScreen(parent)
         local y = -40 - (i - 1) * 18
         local row = { mix = Cell(body, y, "small", "text") }
         for _, c in ipairs(MIX_COLUMNS) do row[c.key] = Cell(body, y, "small", "text", c) end
+        -- Click a mix to use it instead (user, 2026-10-12: use the silver
+        -- you have rather than shop again for a few gold stones)
+        local hit = CreateFrame("Button", nil, body)
+        hit:SetPoint("TOPLEFT", 8, y + 3)
+        hit:SetPoint("RIGHT", body, "LEFT", MIX_COLUMNS[#MIX_COLUMNS].right + 8, 0)
+        hit:SetHeight(18)
+        local glow = hit:CreateTexture(nil, "BACKGROUND")
+        glow:SetAllPoints()
+        glow:SetColorTexture(1, 1, 1, 0.06)
+        glow:Hide()
+        hit:SetScript("OnEnter", function(self) if self.entry then glow:Show() end end)
+        hit:SetScript("OnLeave", function() glow:Hide() end)
+        UI.SetTooltip(hit, function(tooltip, self)
+            if not self.entry then return end
+            if self.picked and self.yours then
+                tooltip:AddLine("Your pick", 1, 1, 1)
+                addon:ClickHint(tooltip, "Click to go back to Goldsmith's pick")
+            elseif self.picked then
+                tooltip:AddLine("Goldsmith's pick", 1, 1, 1)
+            else
+                tooltip:AddLine("Use this mix instead", 1, 1, 1)
+                addon:ClickHint(tooltip, "Click to plan and craft with it")
+            end
+        end)
+        hit:SetScript("OnClick", function(self)
+            local p, base = screen.plan, screen.baseTierInfo
+            if not (self.entry and p and base) then return end
+            -- Clicking your own pick again goes back to Goldsmith's
+            local e = (self.picked and self.yours) and nil or self.entry
+            if self.picked and not self.yours then return end
+            addon:WithCharacter(p.charKey, addon.SetPlanMix, addon, p.recipe, base, e,
+                tonumber(screen.qty:GetText()) or 0)
+            screen:Update()
+        end)
+        row.hit = hit
         mixes.rows[i] = row
     end
 
@@ -1660,9 +1695,10 @@ local function CreatePlanScreen(parent)
         mixes.why:SetText(string.format(conc
             and "The top %d of %d mixes that reach this tier, ranked by extra gold per concentration point.%s"
             or "The top %d of %d mixes that reach this tier, cheapest first.%s", top, #candidates,
-            (tierInfo.built and " Picked: a mix in between that uses materials you have.")
+            ((tierInfo.built and " Picked: a mix in between that uses materials you have.")
+            or ((tierInfo.yourPick and pickedRank) and string.format(" Using #%d, your pick.", pickedRank))
             or ((tierInfo.heldPick and pickedRank) and string.format(" Picked #%d: it uses materials you have.", pickedRank))
-            or ""))
+            or "") .. " Click a mix to use it."))
         mixes.header.mix:SetText(string.format("TOP %d MIXES", top))
         mixes.header.conc:SetShown(conc)
         mixes.header.perPoint:SetShown(conc)
@@ -1672,7 +1708,8 @@ local function CreatePlanScreen(parent)
         local pickedNumbers = conc and tierInfo.concentrationValue
             and string.format("%s per point", Money(tierInfo.concentrationValue)) or Money(tierInfo.cost + offset) .. " each"
         mixes.picked:SetText(string.format("Picked: %s  %s", pickedText,
-            addon:Colorize(string.format(tierInfo.heldPick and "(%s, uses materials you have)" or "(%s, best of %d)",
+            addon:Colorize(string.format(tierInfo.yourPick and "(%s, your pick)"
+                or tierInfo.heldPick and "(%s, uses materials you have)" or "(%s, best of %d)",
                 pickedNumbers, #candidates), "muted")))
         mixes.toggle:SetText(open and "Hide" or "Compare")
 
@@ -1712,12 +1749,15 @@ local function CreatePlanScreen(parent)
                 if recipe and addon:MixUsesCheaperGold(recipe, e.scenario) then
                     text = text .. addon:Colorize("  (gold is cheaper)", "dim")
                 end
-                Fill(row, e, picked and (text .. addon:Colorize("  (picked)", "dim")) or text, picked and "gold" or "text")
+                Fill(row, e, picked and (text .. addon:Colorize(tierInfo.yourPick and "  (your pick)" or "  (picked)", "dim"))
+                    or text, picked and "gold" or "text")
+                row.hit.entry, row.hit.picked, row.hit.yours = (not e.built) and e or nil, picked, tierInfo.yourPick
             elseif baselines[i - #list] then
                 -- Without concentration, each extreme and the tier it reaches
                 local b = baselines[i - #list]
                 Fill(row, b, string.format("Without concentration, %s makes %s", b.description,
                     addon:TierIconText(b.tier, b.tierCount)), "muted")
+                row.hit.entry = nil
             else
                 Clear(row)
             end
@@ -1820,9 +1860,32 @@ local function CreatePlanScreen(parent)
     UI.Style(screen.craft, "highlight", "borderGold")
     screen.craft.label:SetTextColor(addon:Color("gold"))
     screen.craft:HookScript("OnLeave", function(self) self:SetBackdropBorderColor(addon:Color("borderGold")) end)
+    -- A profession's crafting buff isn't on: said above the button, in case
+    -- you want it first (user, 2026-10-12)
+    screen.buffWarn = UI.Text(summary, "small", "warning", "RIGHT")
+    screen.buffWarn:SetPoint("BOTTOMRIGHT", screen.craft, "TOPRIGHT", 0, 6)
+    screen.buffWarn:SetWidth(320)
+    function screen:UpdateBuffWarning()
+        local p = screen.plan
+        local name = p and p.charKey == addon.charKey and addon:MissingCraftBuff(p.recipe.profession, p.recipe)
+        screen.buffWarn:SetText(name and (name .. " isn't active") or "")
+    end
+    local buffEvents = CreateFrame("Frame", nil, screen)
+    buffEvents:RegisterUnitEvent("UNIT_AURA", "player")
+    buffEvents:SetScript("OnEvent", function()
+        if screen:IsVisible() then screen:UpdateBuffWarning() end
+    end)
+
     UI.SetTooltip(screen.craft, function(tooltip)
         local state = screen.craftState
         if not state then return end
+        local missing = screen.plan and screen.plan.charKey == addon.charKey
+            and addon:MissingCraftBuff(screen.plan.recipe.profession, screen.plan.recipe)
+        if missing then
+            local r, g, b = addon:Color("warning")
+            tooltip:AddLine(missing .. " isn't active. It adds crafting stats; turn it on first if you want them.",
+                r, g, b, true)
+        end
         tooltip:AddLine(state.open and state.label or "Craft from Goldsmith", 1, 1, 1)
         if state.steps then
             tooltip:AddLine("One click per step; the button moves on as your bags fill up:", 0.8, 0.8, 0.8, true)
@@ -1898,11 +1961,14 @@ local function CreatePlanScreen(parent)
         local p = screen.plan
         if not p then return end
         local recipe = p.recipe
+        screen:UpdateBuffWarning()
 
         local tierInfo, tierNote = addon:WithCharacter(p.charKey, FindTierInfo, p)
-        -- Using what you hold: a mix of the same tier that needs less buying
+        -- Using what you hold: a mix of the same tier that needs less buying,
+        -- or the one you clicked (ChooseMix)
+        screen.baseTierInfo = tierInfo
         if tierInfo then
-            tierInfo = addon:WithCharacter(p.charKey, addon.PreferHeldMix, addon, recipe, tierInfo,
+            tierInfo = addon:WithCharacter(p.charKey, addon.ChooseMix, addon, recipe, tierInfo,
                 tonumber(screen.qty:GetText()) or 0)
         end
         screen.tierInfo = tierInfo
@@ -1936,11 +2002,44 @@ local function CreatePlanScreen(parent)
 
         local plan = addon:WithCharacter(p.charKey, addon.BuildPlan, addon, recipe, quantity,
             true, tierInfo)
+        -- With concentration, plan only the crafts it covers now, like the
+        -- Craft button: 2 crafts were planned and shopped for with enough
+        -- for 1 (user, 2026-10-12). The Make box keeps your number.
+        local concLimit
+        if tierInfo and tierInfo.concentrate then
+            local current = p.charKey == addon.charKey and addon:GetConcentration(recipe.profession)
+                or addon:GetCharacterConcentration(p.charKey, recipe.profession)
+            local full = tierInfo.scenario and tierInfo.scenario.concentration or tierInfo.concentration
+            local expected = math.max(tierInfo.concentration or full or 1, 1)
+            if current and full then
+                local affordable = current >= full and (math.floor((current - full) / expected) + 1) or 0
+                if affordable > 0 and plan.crafts > affordable then
+                    concLimit = { crafts = affordable, current = current }
+                    local q = math.max(math.floor(quantity * affordable / plan.crafts), 1)
+                    local capped = addon:WithCharacter(p.charKey, addon.BuildPlan, addon, recipe, q, true, tierInfo)
+                    while capped.crafts > affordable and q > 1 do
+                        q = q - 1
+                        capped = addon:WithCharacter(p.charKey, addon.BuildPlan, addon, recipe, q, true, tierInfo)
+                    end
+                    plan = capped
+                elseif affordable == 0 then
+                    concLimit = { crafts = 0, current = current, full = full }
+                end
+            end
+        end
         screen.current = plan
         local nodes = addon:FlattenPlan(plan)
         screen.list:SetItems(nodes)
         screen.crafts:SetFormattedText("%d craft%s, about %.1f made", plan.crafts,
             plan.crafts == 1 and "" or "s", plan.expectedOutput)
+        if concLimit and concLimit.crafts > 0 then
+            screen.crafts:SetText(screen.crafts:GetText() .. addon:Colorize(string.format(
+                "  (your %d concentration covers %d craft%s now)", concLimit.current, concLimit.crafts,
+                concLimit.crafts == 1 and "" or "s"), "warning"))
+        elseif concLimit then
+            screen.crafts:SetText(screen.crafts:GetText() .. addon:Colorize(string.format(
+                "  (not enough concentration now: %d to start, you have %d)", concLimit.full, concLimit.current), "warning"))
+        end
 
         local made = math.max(plan.expectedOutput, 0.0001)
         -- The mix table, lined up with this plan's cost

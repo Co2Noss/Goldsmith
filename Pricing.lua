@@ -1054,6 +1054,14 @@ local function SaveRecipe(recipeID, quiet, attempt, profession, unlearned)
         local okS, source = pcall(C_TradeSkillUI.GetRecipeSourceText, recipeID)
         local learners = existing and existing.learners or {}
         learners[pendingLearner or addon.charKey] = true
+        -- The game gives no profession for some recipes you haven't
+        -- learned (Midnight Cooking's came back ""), so they matched no
+        -- profession filter: take it from the skill line instead
+        -- ("Midnight Cooking" -> "Cooking"; user, 2026-10-12)
+        local line = okL and type(skillLine) == "string" and skillLine or (existing and existing.skillLine)
+        if (not profession or profession == "" or profession == "Unassigned") and line then
+            profession = line:match("(%S+)$") or profession
+        end
         GoldsmithDB.unlearned[recipeID] = {
             recipeID = recipeID,
             name = schematic.name,
@@ -1250,15 +1258,23 @@ function addon:RefreshRecipeStats(recipeID)
     -- stored as a currency (0 for recipes that don't use concentration).
     -- Remember each recipe's currency, and for the profession the current
     -- expansion's one, so its amount can be read any time (Quality.lua).
+    -- A profession without concentration (Cooking), or a currency another
+    -- profession has already: an Enchanting recipe filed under Cooking gave
+    -- Cooking Enchanting's concentration, so Mysticmead's Cooking showed
+    -- "1000, full" (user, 2026-10-12: cooking has no concentration)
     local currencyID = op.concentrationCurrencyID
     if currencyID and currencyID > 0 then
         stats.concentrationCurrencyID = currencyID
         local recipe = GoldsmithDB.recipes[recipeID]
-        if recipe and recipe.profession then
+        if recipe and recipe.profession and not addon.NO_CONCENTRATION[recipe.profession] then
             GoldsmithDB.concentrationCurrency = GoldsmithDB.concentrationCurrency or {}
             local known = GoldsmithDB.concentrationCurrency[recipe.profession]
             local isCurrent = addon:GetRecipeExpansion(recipe) == addon:GetCurrentExpansion()
-            if isCurrent or not known or known == 0 then
+            local taken = false
+            for other, id in pairs(GoldsmithDB.concentrationCurrency) do
+                if other ~= recipe.profession and id == currencyID then taken = true end
+            end
+            if not taken and (isCurrent or not known or known == 0) then
                 GoldsmithDB.concentrationCurrency[recipe.profession] = currencyID
             end
         end
@@ -2279,6 +2295,47 @@ end
 -- itemID (optional): the exact item, when a sale matched your post
 -- (MatchSaleToPost): its own crafts and purchases only, so silver and gold
 -- of the same item aren't blended (user, 2026-10-10).
+-- The selling character's own ways of getting an item, newest first, when
+-- they cover the units sold: what they gathered themselves is free, payout
+-- bag loot counts at its AH price, a crafted box's loot and purchases at
+-- what they cost. Returns cost per unit and "free" or "paid", or nil (then
+-- every character's stock is used, GetOwnCost). Raikozaan's own herbs were
+-- costed at the average with Mysticmead's purchases and bouquet herbs
+-- (user, 2026-10-12: Sanguithorn 0.38g, Mana Lily 1.29g, Tranquility Bloom
+-- 1.32g, all gathered by the seller).
+local function SellerCost(itemName, units, itemID)
+    if not itemID then return nil end
+    local me, realm = UnitName("player"), GetRealmName()
+    local list = {}
+    for _, e in ipairs(addon.ledger:index().purchases[itemName] or {}) do
+        if e.itemID == itemID and e.character == me and (not e.realm or e.realm == realm) and (e.quantity or 0) > 0 then
+            list[#list + 1] = { time = e.timestamp or 0, qty = e.quantity, each = (e.totalCopper or 0) / e.quantity }
+        end
+    end
+    for _, e in ipairs(addon.GatheredIndex and addon:GatheredIndex()[itemName] or {}) do
+        if e.itemID == itemID and e.character == me and e.realm == realm and (e.qty or 0) > 0 then
+            local each, free = 0, true
+            if e.box then
+                each, free = (e.cost and (e.costQty or 0) > 0) and e.cost / e.costQty or 0, false
+            elseif e.payout then
+                each, free = addon:GetMarketPrice(itemID) or 0, false
+            end
+            list[#list + 1] = { time = e.time or 0, qty = e.qty, each = each, free = free }
+        end
+    end
+    if #list == 0 then return nil end
+    table.sort(list, function(a, b) return a.time > b.time end)
+    local need, covered, total, allFree = math.max(units or 1, 1), 0, 0, true
+    for _, a in ipairs(list) do
+        local take = math.min(a.qty, need - covered)
+        total, covered = total + take * a.each, covered + take
+        if not a.free then allFree = false end
+        if covered >= need then break end
+    end
+    if covered < need then return nil end
+    return total / covered, allFree and "free" or "paid"
+end
+
 function addon:GetUnitCostBasis(itemName, units, itemID)
     if GoldsmithDB.freeItems and GoldsmithDB.freeItems[itemName] then
         return 0, false, "free"
@@ -2300,6 +2357,8 @@ function addon:GetUnitCostBasis(itemName, units, itemID)
     -- Glass bought at 13.79g were recorded as sold at a cost of 119.86g each
     -- (its recipe's estimate), a 10,000g loss that was really about 200g
     -- (2026-10-10)
+    local mine, mineSource = SellerCost(itemName, units, itemID)
+    if mine then return mine, false, mineSource end
     local own, ownSource = addon:GetOwnCost(itemName, nil, itemID, true)
     if own then
         return own, false, ownSource == "free" and "free" or "paid"
@@ -2704,6 +2763,16 @@ local function CountRecipes()
     return n
 end
 
+-- A saved recipe no character has learned: clicking one in the profession
+-- window used to save it with the learned ones, where it showed nowhere
+-- (Null and Void Plate, user 2026-10-12)
+local function KnownByAnyone(recipeID)
+    for _, c in pairs(GoldsmithDB.characters) do
+        if c.knownRecipes and c.knownRecipes[recipeID] then return true end
+    end
+    return false
+end
+
 local function ScanLearnedRecipes()
     scanTimer = nil
     if scanning then return end
@@ -2721,11 +2790,24 @@ local function ScanLearnedRecipes()
     local toSave, toStats, toUnlearned = {}, {}, {}
     local current = addon:GetCurrentExpansion()
     for _, id in ipairs(ids) do
+        -- Seen unlearned earlier this session and learned since (from a
+        -- trainer, where NEW_RECIPE_LEARNED doesn't always come): looked at
+        -- again, so it's marked known without a reload (Braised Blood
+        -- Hunter, user 2026-10-12)
+        if triedThisSession[id] and not addon.char.knownRecipes[id] then
+            local info = C_TradeSkillUI.GetRecipeInfo(id)
+            if info and info.learned then triedThisSession[id], statsReadThisSession[id] = nil, nil end
+        end
         if not statsReadThisSession[id] and not triedThisSession[id] then
             local info = C_TradeSkillUI.GetRecipeInfo(id)
             local learned = info and info.learned
             if learned then
                 addon:MarkRecipeKnown(id)
+            end
+            if info and not learned and GoldsmithDB.recipes[id] and not KnownByAnyone(id) then
+                -- Saved but nobody knows it: moved to the ones not learned
+                GoldsmithDB.recipes[id] = nil
+                addon.recipesVersion = addon.recipesVersion + 1
             end
             if info and not learned and not GoldsmithDB.recipes[id] then
                 triedThisSession[id] = true
@@ -2974,6 +3056,21 @@ function addon:InitializePricing()
         end
     end
 
+    -- Professions without concentration: drop what was saved for them
+    for profession in pairs(addon.NO_CONCENTRATION) do
+        if GoldsmithDB.concentrationCurrency then GoldsmithDB.concentrationCurrency[profession] = nil end
+        for _, c in pairs(GoldsmithDB.characters or {}) do
+            if c.concentration then c.concentration[profession] = nil end
+        end
+    end
+
+    -- Recipes not learned yet saved without a profession (see SaveRecipe)
+    for _, recipe in pairs(GoldsmithDB.unlearned or {}) do
+        if (not recipe.profession or recipe.profession == "" or recipe.profession == "Unassigned") and recipe.skillLine then
+            recipe.profession = recipe.skillLine:match("(%S+)$") or recipe.profession
+        end
+    end
+
     -- Remove salvage recipes saved before they were filtered out
     for recipeID, recipe in pairs(GoldsmithDB.recipes) do
         local ok, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
@@ -3106,6 +3203,10 @@ function addon:InitializePricing()
             -- Stats change with knowledge points, gear and skill, so they're
             -- read again every time a profession window opens
             if event == "TRADE_SKILL_SHOW" then wipe(statsReadThisSession) end
+            -- Just learned: looked at again, though seen unlearned earlier this session
+            if event == "NEW_RECIPE_LEARNED" and resultData then
+                triedThisSession[resultData], statsReadThisSession[resultData] = nil, nil
+            end
             QueueRecipeScan()
         end
     end)
@@ -3163,7 +3264,16 @@ function addon:InitializePricing()
         EventRegistry:RegisterCallback("ProfessionsRecipeListMixin.Event.OnRecipeSelected", function(_, recipeInfo)
             if recipeInfo and recipeInfo.recipeID then
                 addon.selectedRecipeID = recipeInfo.recipeID
-                SaveRecipe(recipeInfo.recipeID, true)
+                local info = C_TradeSkillUI.GetRecipeInfo(recipeInfo.recipeID)
+                if info and info.learned == false then
+                    -- Kept with the ones not learned yet (Crafts > Show:
+                    -- Not learned yet), not with the ones you can craft
+                    if not GoldsmithDB.recipes[recipeInfo.recipeID] then
+                        SaveRecipe(recipeInfo.recipeID, true, 1, nil, true)
+                    end
+                else
+                    SaveRecipe(recipeInfo.recipeID, true)
+                end
             end
         end, addon)
     end

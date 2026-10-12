@@ -326,6 +326,11 @@ function addon:BuildQueue(charKey)
             if row.recipe and row.remaining > 0 then
                 row.p = { recipe = row.recipe, charKey = charKey, tier = e.tier, concentrate = e.concentrate }
                 row.tierInfo = addon:WithCharacter(charKey, addon.FindTierInfo, row.p)
+                -- The mix the planner shows: what you hold, or your pick
+                if row.tierInfo then
+                    row.tierInfo = addon:WithCharacter(charKey, addon.ChooseMix, addon, row.recipe, row.tierInfo,
+                        row.remaining)
+                end
                 plan = addon:WithCharacter(charKey, addon.BuildPlan, addon, row.recipe, row.remaining, useOnHand,
                     row.tierInfo, pool)
                 if mine then row.state = addon.GetCraftState(row.p, row.tierInfo, plan) end

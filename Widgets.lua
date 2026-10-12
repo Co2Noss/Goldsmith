@@ -131,6 +131,90 @@ function UI.EndTooltip(tooltip)
     end
 end
 
+-- A table in a hover (GameTooltip only): the game's hover has a left and a
+-- right side, so values of different kinds ("846, full in 15h", "+171.44g
+-- extra") ended ragged on the right (user, 2026-10-12). Each row's left
+-- text is a normal line; its other cells are drawn over it, right-aligned
+-- in columns sized to their widest value, and the hover is widened to fit.
+--   columns = { "Now", "Full in", ... } (header labels)
+--   rows = { { left = text, r, g, b, cells = { [column] = { text, r, g, b } } }
+--            or { line = text, r, g, b, wrap = true } (a plain full line) }
+-- The header goes on the hover's first line (title = its text).
+local TABLE_GAP = 18
+local tableCells, tableWidened = {}, false
+local measure
+
+local function ClearTable()
+    for _, fs in ipairs(tableCells) do
+        fs:Hide()
+        fs:ClearAllPoints()
+    end
+    if tableWidened then
+        tableWidened = false
+        GameTooltip:SetMinimumWidth(0)
+    end
+end
+GameTooltip:HookScript("OnTooltipCleared", ClearTable)
+GameTooltip:HookScript("OnHide", ClearTable)
+
+function UI.TooltipTable(tooltip, title, columns, rows)
+    if tooltip ~= GameTooltip then
+        -- Not drawable as a table: plain lines
+        tooltip:AddLine(title, 1, 1, 1)
+        for _, row in ipairs(rows) do tooltip:AddLine(row.left or row.line, row[1], row[2], row[3], row.wrap) end
+        return
+    end
+    measure = measure or UIParent:CreateFontString(nil, "ARTWORK", "GameTooltipText")
+    local function Width(text)
+        measure:SetText(text or "")
+        return measure:GetStringWidth()
+    end
+    local leftWidth, widths = 0, {}
+    for i, label in ipairs(columns) do widths[i] = Width(label) end
+    for _, row in ipairs(rows) do
+        if row.left then
+            leftWidth = math.max(leftWidth, Width(row.left))
+            for i, cell in pairs(row.cells or {}) do widths[i] = math.max(widths[i] or 0, Width(cell[1])) end
+        end
+    end
+    -- Each column's right edge, from where the lines start
+    local rights, x = {}, leftWidth
+    for i = 1, #columns do
+        x = x + TABLE_GAP + widths[i]
+        rights[i] = x
+    end
+    local used = 0
+    local function Place(line, column, text, r, g, b)
+        used = used + 1
+        local fs = tableCells[used]
+        if not fs then
+            fs = GameTooltip:CreateFontString(nil, "ARTWORK", "GameTooltipText")
+            tableCells[used] = fs
+        end
+        fs:SetJustifyH("RIGHT")
+        fs:SetText(text)
+        fs:SetTextColor(r or 1, g or 1, b or 1)
+        fs:ClearAllPoints()
+        fs:SetPoint("RIGHT", _G["GameTooltipTextLeft" .. line], "LEFT", rights[column], 0)
+        fs:Show()
+    end
+
+    tooltip:AddLine(title, 1, 1, 1)
+    local mr, mg, mb = addon:Color("muted")
+    for i, label in ipairs(columns) do Place(tooltip:NumLines(), i, label, mr, mg, mb) end
+    for _, row in ipairs(rows) do
+        if row.left then
+            tooltip:AddLine(row.left, row[1], row[2], row[3])
+            for i, cell in pairs(row.cells or {}) do Place(tooltip:NumLines(), i, cell[1], cell[2], cell[3], cell[4]) end
+        else
+            tooltip:AddLine(row.line, row[1], row[2], row[3], row.wrap)
+        end
+    end
+    tableWidened = true
+    -- The hover's own padding on both sides
+    tooltip:SetMinimumWidth(x + 24)
+end
+
 -- What an item does, as the game's own tooltip says it: its green lines
 -- ("Use: Drink to increase your primary stat…", "Equip: …"). Kept per
 -- item once read. Returns a list of lines, or nil (none, or the game

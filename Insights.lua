@@ -866,25 +866,47 @@ end
 -- expected to make (price at craft time after the AH cut, less what the
 -- craft cost), when the lots kept that price. checked: items with sales
 -- and an expectation; heldUp: how many of them made HELD_UP_SHARE of it.
--- days: since the item's first followed craft.
+-- days: since the item's first followed craft. A box that can't be sold
+-- (a Bouquet of Herbs) counts when opened instead, at what came out of it
+-- (worth after the AH cut, less the box's cost): opened = true, and sold
+-- is how many were opened (user, 2026-10-12).
+
+-- Opened since `since`: count, what came out (worth, cost). Opens before
+-- each one's time was kept (box.openedAt) are counted from the cost
+-- shares, one box's cost (unitCost) each.
+local function BoxOpenedSince(boxID, since, unitCost)
+    local box = GoldsmithDB.boxContents and GoldsmithDB.boxContents[boxID]
+    local worth, cost = 0, 0
+    for _, e in ipairs(GoldsmithDB.gathered or {}) do
+        if e.box == boxID and (e.time or 0) >= since then
+            worth, cost = worth + (e.value or 0), cost + (e.cost or 0)
+        end
+    end
+    local opened = 0
+    if box and box.openedAt then
+        for _, t in ipairs(box.openedAt) do if t >= since then opened = opened + 1 end end
+    elseif worth > 0 then
+        opened = unitCost > 0 and math.max(math.floor(cost / unitCost + 0.5), 1) or 1
+    end
+    return opened, worth, cost
+end
+
 function addon:GetFollowedSummary(days)
     local since = time() - (days or 7) * 86400
     local byName = {}
-    for _, lots in pairs(GoldsmithDB.craftLots or {}) do
+    for itemID, lots in pairs(GoldsmithDB.craftLots or {}) do
         for _, lot in ipairs(lots) do
             if lot.suggested and lot.time and lot.time >= since and lot.name and (lot.qty or 0) > 0 then
                 local s = byName[lot.name]
                 if not s then
-                    s = { name = lot.name, made = 0, cost = 0, first = lot.time, expQty = 0, expProfit = 0 }
+                    s = { name = lot.name, made = 0, cost = 0, first = lot.time, lots = {} }
                     byName[lot.name] = s
                 end
                 s.made = s.made + lot.qty
                 s.cost = s.cost + lot.qty * (lot.unitCost or 0)
                 s.first = math.min(s.first, lot.time)
-                if lot.expectedPrice then
-                    s.expQty = s.expQty + lot.qty
-                    s.expProfit = s.expProfit + lot.qty * (lot.expectedPrice * (1 - AH_CUT) - (lot.unitCost or 0))
-                end
+                s.itemID = s.itemID or itemID
+                table.insert(s.lots, lot)
             end
         end
     end
@@ -893,20 +915,42 @@ function addon:GetFollowedSummary(days)
     for name, s in pairs(byName) do
         s.sold, s.profit = 0, 0
         local unitCost = s.made > 0 and s.cost / s.made or 0
-        for _, e in ipairs(sales[name] or {}) do
-            if s.sold >= s.made then break end
-            if e.timestamp >= s.first and (e.quantity or 0) > 0 then
-                local take = math.min(e.quantity, s.made - s.sold)
-                local share = take / e.quantity
-                local cost = e.costBasis and e.costBasis * share or unitCost * take
-                s.profit = s.profit + e.totalCopper * share - cost
-                s.sold = s.sold + take
+        if addon:CanAuction(s.itemID) == false and addon:GetBoxValue(s.itemID) then
+            local opened, worth, cost = BoxOpenedSince(s.itemID, s.first - 60, unitCost)
+            s.opened = true
+            s.sold = math.min(opened, s.made)
+            if opened > 0 then s.profit = (worth * (1 - AH_CUT) - cost) * s.sold / opened end
+        else
+            for _, e in ipairs(sales[name] or {}) do
+                if s.sold >= s.made then break end
+                if e.timestamp >= s.first and (e.quantity or 0) > 0 then
+                    local take = math.min(e.quantity, s.made - s.sold)
+                    local share = take / e.quantity
+                    local cost = e.costBasis and e.costBasis * share or unitCost * take
+                    s.profit = s.profit + e.totalCopper * share - cost
+                    s.sold = s.sold + take
+                end
             end
         end
         s.days = math.floor((time() - s.first) / 86400)
-        if s.expQty > 0 then
+        -- Expected: from the lots the ones sold came out of, oldest first
+        -- like the sales. 13 Razorstones sold from a lot that kept no
+        -- price were judged on two later losing lots (expected -441.51g,
+        -- 2026-10-12).
+        table.sort(s.lots, function(a, b) return a.time < b.time end)
+        local left, expQty, expProfit = s.sold, 0, 0
+        for _, lot in ipairs(s.lots) do
+            if left <= 0 then break end
+            local take = math.min(lot.qty, left)
+            left = left - take
+            if lot.expectedPrice then
+                expQty = expQty + take
+                expProfit = expProfit + take * (lot.expectedPrice * (1 - AH_CUT) - (lot.unitCost or 0))
+            end
+        end
+        if expQty > 0 then
             -- Expected each (from the lots that kept it), for the ones sold
-            s.expected = s.expProfit / s.expQty * s.sold
+            s.expected = expProfit / expQty * s.sold
             if s.sold > 0 then
                 result.checked = result.checked + 1
                 if s.profit >= (s.expected > 0 and s.expected * HELD_UP_SHARE or s.expected) then
@@ -1857,9 +1901,9 @@ History = function(filters)
             if not row then
                 row = { kind = kind, time = 0, qty = 0, worth = 0, entries = {}, items = {} }
                 if e.box then
-                    local boxName = C_Item.GetItemNameByID(e.box)
-                    local recipe = boxName and addon:FindRecipeByOutput(boxName)
-                    row.item, row.itemID, row.box = boxName or "A box you crafted", e.box, true
+                    local boxName = addon:KnownItemName(e.box) -- from your recipes when the game has it unloaded (user, 2026-10-12)
+                    local recipe = addon:FindRecipeByOutput(boxName)
+                    row.item, row.itemID, row.box = boxName, e.box, true
                     row.boxProfession = recipe and recipe.profession
                 end
                 days[key] = row

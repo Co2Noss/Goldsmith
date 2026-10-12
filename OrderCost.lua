@@ -93,12 +93,6 @@ local ORDER = {
     tooltip = function(tooltip, p)
         tooltip:AddLine("Goldsmith: this order", addon:Color("gold"))
         AddMaterials(tooltip, p.mats)
-        if next(p.provided) then
-            tooltip:AddLine("Customer provides", addon:Color("muted"))
-            for id, qty in pairs(p.provided) do
-                tooltip:AddLine(qty .. "x " .. ItemName(id), 0.8, 0.8, 0.8)
-            end
-        end
         tooltip:AddLine(" ")
         tooltip:AddDoubleLine("Commission (after the consortium's cut)", Money(p.commission), 1, 1, 1, 1, 1, 1)
         for _, r in ipairs(p.rewards) do
