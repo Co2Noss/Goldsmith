@@ -123,6 +123,8 @@ local function SortItems(items)
     local getValue = SORTS[sort.key].value
     -- Can wait for a frame on long lists (Settings.lua)
     addon:Sort(items, function(a, b)
+        -- A search lists every expansion: the ones picked at the top first
+        if (a.pinned or false) ~= (b.pinned or false) then return a.pinned or false end
         local va, vb = getValue(a), getValue(b)
         if va ~= nil and vb ~= nil and va ~= vb then
             if sort.descending then return va > vb end
@@ -423,7 +425,7 @@ local function CraftTooltip(tooltip, item)
         Why(tooltip, "What it sells for now: the lowest listing, or the usual price when the lowest is far below it (a stray cheap listing) or far above what it sells for (a shelf price). A ~ before the price in the list means it was adjusted. Price data says where it came from and how old it is.")
         Line(tooltip, "Profit each", string.format("%s%s", Signed(info.profit),
             info.margin and (" (" .. Roi(info.margin) .. " ROI)") or ""), addon:MoneyColor(info.profit))
-        Why(tooltip, "AH price less the 5% cut, less the cost. ROI is that profit as a share of the cost: 100% doubles your gold.")
+        Why(tooltip, "AH price after the 5% cut, minus the cost. ROI is that profit as a share of the cost: 100% doubles your gold.")
     else
         Note(tooltip, "No AH price yet. Scan the AH with Auctionator.")
     end
@@ -2875,8 +2877,15 @@ local function Create(parent)
     -- The planner's crafts finished or stopped (CraftDone.lua)
     addon.PlanCraftsDone = function(recipeID, made) view.plan:CraftsDone(recipeID, made) end
 
+    -- Back to the list shows the row you were at, not where the list was
+    -- left (user, 2026-10-11: from a to-do item or History, Back meant
+    -- searching or scrolling for it again)
     function view:CloseSalvage()
-        local returnTab = view.salvage.target and view.salvage.target.returnTab
+        local target = view.salvage.target
+        local returnTab = target and target.returnTab
+        if target and not returnTab then
+            view.list:ScrollToItem({ function(item) return item.salvage and item.itemID == target.itemID end })
+        end
         view.salvage.target = nil
         view.salvage.current = nil
         view.salvage.qty:ClearFocus()
@@ -2885,7 +2894,19 @@ local function Create(parent)
 
     -- Back goes to the Queue tab for a plan opened from there
     function view:ClosePlan()
-        local returnTab = view.plan.plan and view.plan.plan.returnTab
+        local plan = view.plan.plan
+        local returnTab = plan and plan.returnTab
+        if plan and not returnTab then
+            local recipeID = plan.recipe and plan.recipe.recipeID
+            local function Same(item)
+                return not item.salvage and item.recipe and item.recipe.recipeID == recipeID
+            end
+            -- The same way of crafting it (concentration or not) first
+            view.list:ScrollToItem({
+                function(item) return Same(item) and (item.info and item.info.concentrate == true) == plan.concentrate end,
+                Same,
+            })
+        end
         view.plan.plan = nil
         view.plan.current = nil
         view.plan.qty:ClearFocus()
@@ -3018,6 +3039,12 @@ local function Refresh(v, state)
     end
     if mixed then
         for _, item in ipairs(items) do item.labelExpansion = true end
+    end
+    -- Searching ignores the expansions picked at the top, so those go
+    -- first (user, 2026-10-11: "transmute" listed every expansion's)
+    for _, item in ipairs(items) do
+        item.pinned = searching and addon:IsExpansionShown(item.salvage and addon:GetItemExpansion(item.itemID)
+            or addon:GetRecipeExpansion(item.recipe)) or nil
     end
     if focus then
         local kept = {}

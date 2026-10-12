@@ -398,19 +398,41 @@ function addon:FollowedLabel(parent)
         local f = label.data
         if not f then return end
         tooltip:AddLine("Suggestions you followed, last 7 days", 1, 1, 1)
-        tooltip:AddLine("Crafts you made within a day of Goldsmith suggesting them, and what they sold for.", 0.6, 0.6, 0.6, true)
+        -- With Ctrl, like the other explanations (user, 2026-10-11)
+        addon:Explain(tooltip, "Crafts of what Goldsmith suggested, made within a day and up to the number suggested (from Goldsmith or the game's window), and what they sold for.")
         tooltip:AddDoubleLine("Crafted", tostring(f.crafted), 0.8, 0.8, 0.8, 1, 1, 1)
         tooltip:AddDoubleLine("Sold", tostring(f.sold), 0.8, 0.8, 0.8, 1, 1, 1)
         tooltip:AddDoubleLine("Not sold yet", tostring(f.unsold), 0.8, 0.8, 0.8, 1, 1, 1)
         local r, g, b = addon:Color(addon:MoneyColor(f.profit))
         tooltip:AddDoubleLine("Profit on what sold", Signed(f.profit), 0.8, 0.8, 0.8, r, g, b)
+        -- How the suggestions paid off: what sold against what was expected
+        -- when it was crafted (user, 2026-10-11; "held up" read as funds held up, so "paid off")
+        if f.checked > 0 then
+            local hr, hg, hb = addon:Color(f.heldUp == f.checked and "profit" or "text")
+            tooltip:AddDoubleLine("Paid off", string.format("%d of %d items", f.heldUp, f.checked),
+                0.8, 0.8, 0.8, hr, hg, hb)
+        end
         tooltip:AddLine(" ")
         for i = 1, math.min(#f.items, 8) do
             local s = f.items[i]
             local ir, ig, ib = addon:Color(addon:MoneyColor(s.profit))
             tooltip:AddDoubleLine(string.format("%s  %d of %d sold", s.name, s.sold, s.made), Signed(s.profit),
                 0.9, 0.9, 0.9, ir, ig, ib)
+            if s.expected and s.sold > 0 then
+                local er, eg, eb = addon:Color(s.heldUp and "profit" or "warning")
+                tooltip:AddDoubleLine("    expected " .. Signed(s.expected), s.heldUp and "paid off" or "fell short",
+                    0.6, 0.6, 0.6, er, eg, eb)
+            end
+            if s.sold < s.made and s.days >= 1 then
+                tooltip:AddLine(string.format("    %d not sold after %d day%s", s.made - s.sold, s.days,
+                    s.days == 1 and "" or "s"), 0.6, 0.6, 0.6)
+            end
         end
+        -- One label to a line, easier to read (user, 2026-10-11)
+        addon:Explain(tooltip, "Expected: the AH price when you crafted it, after the AH cut, minus the craft cost.")
+        addon:Explain(tooltip, "Paid off: its sales made at least 80% of the expected profit, so the suggestion was right.")
+        addon:Explain(tooltip, "Fell short: its sales made less than that.")
+        addon:Explain(tooltip, "Counted for crafts from Oct 11, 2026 on.")
     end, "ANCHOR_BOTTOM")
     function label:Update(hide)
         local f = addon:GetFollowedSummary(7)

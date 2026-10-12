@@ -1,46 +1,35 @@
 local addon = _G.Goldsmith or {}
 local UI = addon.UI
 
--- What a crafting order costs you, in the game's order window
+-- What a craft costs you, in the game's profession window
 --
--- Under the order's materials (the empty space below the last one), two
--- lines in the window's own font: what you'd actually pay (only the
--- materials you supply, not the customer's, at the qualities the window
--- has chosen) and the profit (commission and sellable rewards less that).
--- The hover lists each material, what the customer provides, the
--- commission and the rewards. CraftSim shows the full
--- recipe cost there, which on a patron order counts the customer's
--- materials as yours (idea board, 2026-10-10). The numbers come from
--- addon:GetOrderPreview (Pricing.lua), valued like History values the
--- craft afterwards. Updates when the order or the allocations change.
--- If the game's order window changes, this quietly shows nothing.
+-- Under the materials (the empty space below the last one), two lines in
+-- the window's own font:
+--   - on a crafting order: what you'd actually pay (only the materials you
+--     supply, not the customer's, at the qualities the window has chosen)
+--     and the profit (commission and sellable rewards less that). CraftSim
+--     shows the full recipe cost there, which on a patron order counts the
+--     customer's materials as yours (idea board, 2026-10-10). Valued like
+--     History values the craft afterwards (addon:GetOrderPreview).
+--   - on your own crafts (user, 2026-10-11: Box of Rocks isn't in
+--     Goldsmith, so what does it cost?): the materials one craft uses and
+--     the profit on what it makes at the quality the window shows, or that
+--     it can't be sold, counted as the Crafts tab counts them
+--     (addon:GetCraftPreview).
+-- The hover lists each material and the rest. Updates when the recipe,
+-- order or allocations change. If the game's window changes, this quietly
+-- shows nothing.
 
 local LOGO = "Interface\\AddOns\\Goldsmith\\Media\\Logo"
 local LOGO_SIZE = 18
 local WIDTH = 330
-
-local holder, line1, line2
-local hooked = false
-local pending = false
-local preview -- the latest GetOrderPreview result, for the hover
-local callbackOwner = {} -- for the form's AllocationsModified callback
+local AH_CUT = 0.05
 
 local Money = function(c) return addon:FormatMoney(c) end
-
-local function OrderView()
-    local page = ProfessionsFrame and ProfessionsFrame.OrdersPage
-    return page and page.OrderView
-end
-
-local function Form()
-    local view = OrderView()
-    return view and view.OrderDetails and view.OrderDetails.SchematicForm
-end
 
 local function ItemName(itemID)
     return C_Item.GetItemNameByID(itemID) or ("item " .. itemID)
 end
-
 
 -- A reward's link, unless the game hasn't loaded its name yet (the link
 -- then reads "[]"): the name, or "item N" while it loads
@@ -50,39 +39,12 @@ local function RewardName(r)
     return ItemName(r.itemID)
 end
 
-local function FillTooltip(tooltip)
-    local p = preview
-    if not p then return end
-    -- Under the line, not over the window's Crafting Details (user, 2026-10-11)
-    tooltip:ClearAllPoints()
-    tooltip:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", 0, -4)
-    tooltip:AddLine("Goldsmith: this order", addon:Color("gold"))
-    if #p.mats > 0 then
-        tooltip:AddLine("Your materials", addon:Color("muted"))
-        for _, m in ipairs(p.mats) do
-            local value = m.unit and Money(m.unit * m.qty) or "no price"
-            tooltip:AddDoubleLine(m.qty .. "x " .. ItemName(m.itemID), value, 1, 1, 1, 1, 1, 1)
-        end
-    end
-    if next(p.provided) then
-        tooltip:AddLine("Customer provides", addon:Color("muted"))
-        for id, qty in pairs(p.provided) do
-            tooltip:AddLine(qty .. "x " .. ItemName(id), 0.8, 0.8, 0.8)
-        end
-    end
-    tooltip:AddLine(" ")
-    tooltip:AddDoubleLine("Commission (after the consortium's cut)", Money(p.commission), 1, 1, 1, 1, 1, 1)
-    for _, r in ipairs(p.rewards) do
-        local value = r.value > 0 and Money(r.value) or "can't be sold"
-        tooltip:AddDoubleLine("Reward: " .. RewardName(r) .. (r.count > 1 and (" x" .. r.count) or ""),
-            value, 1, 1, 1, 0.8, 0.8, 0.8)
-    end
-    addon:Explain(tooltip, "Your materials are valued at what yours cost you, or today's price "
-        .. "if you have none: the same way History counts the order once it's crafted. "
-        .. "A material you don't have yet counts at its lowest quality. "
-        .. "Resourcefulness may give some back (History shows it as kept).")
-    if not p.complete then
-        tooltip:AddLine("Some materials have no price, so the cost is at least this.", addon:Color("warning"))
+local function AddMaterials(tooltip, mats)
+    if #mats == 0 then return end
+    tooltip:AddLine("Your materials", addon:Color("muted"))
+    for _, m in ipairs(mats) do
+        local value = m.unit and Money(m.unit * m.qty) or "no price"
+        tooltip:AddDoubleLine(m.qty .. "x " .. ItemName(m.itemID), value, 1, 1, 1, 1, 1, 1)
     end
 end
 
@@ -101,8 +63,125 @@ local function NativeFont(form)
     return ok and font or GameFontHighlight
 end
 
-local function Create(form)
-    holder = CreateFrame("Frame", nil, form)
+-- The item a craft makes at the quality the window shows (its details
+-- panel), or nil to use the recipe's own
+local function ShownOutput(form, recipeID)
+    local okO, op = pcall(form.GetRecipeOperationInfo, form)
+    local quality = okO and type(op) == "table" and op.craftingQualityID
+    if not quality then return nil end
+    local ok, out = pcall(C_TradeSkillUI.GetRecipeOutputItemData, recipeID, {}, nil, quality)
+    return ok and type(out) == "table" and out.itemID or nil
+end
+
+-- Pages
+
+local ORDER = {
+    view = function()
+        local page = ProfessionsFrame and ProfessionsFrame.OrdersPage
+        return page and page.OrderView
+    end,
+    form = function(view) return view.OrderDetails and view.OrderDetails.SchematicForm end,
+    preview = function(view, tx) return addon:GetOrderPreview(view.order, tx) end,
+    lines = function(p)
+        local cost = #p.mats == 0 and "none" or ((p.complete and "" or "at least ") .. Money(p.cost))
+        local profit = p.commission + p.rewardsValue - p.cost
+        -- Just your cost and the profit: the window already marks what the
+        -- customer supplies and shows the commission (user, 2026-10-11)
+        return "Your materials: " .. cost, "Profit: " .. (p.complete and "" or "at most ")
+            .. addon:Colorize(addon:FormatSignedMoney(profit), addon:MoneyColor(profit))
+    end,
+    tooltip = function(tooltip, p)
+        tooltip:AddLine("Goldsmith: this order", addon:Color("gold"))
+        AddMaterials(tooltip, p.mats)
+        if next(p.provided) then
+            tooltip:AddLine("Customer provides", addon:Color("muted"))
+            for id, qty in pairs(p.provided) do
+                tooltip:AddLine(qty .. "x " .. ItemName(id), 0.8, 0.8, 0.8)
+            end
+        end
+        tooltip:AddLine(" ")
+        tooltip:AddDoubleLine("Commission (after the consortium's cut)", Money(p.commission), 1, 1, 1, 1, 1, 1)
+        for _, r in ipairs(p.rewards) do
+            local value = r.value > 0 and Money(r.value) or "can't be sold"
+            -- A payout bag: what's inside on average (user, 2026-10-11)
+            if r.opened then value = string.format("about %s (avg of %d opened)", Money(r.value), r.opened) end
+            tooltip:AddDoubleLine("Reward: " .. RewardName(r) .. (r.count > 1 and (" x" .. r.count) or ""),
+                value, 1, 1, 1, 0.8, 0.8, 0.8)
+        end
+        addon:Explain(tooltip, "Your materials are valued at what yours cost you, or today's price "
+            .. "if you have none: the same way History counts the order once it's crafted. "
+            .. "A material you don't have yet counts at its lowest quality. "
+            .. "Resourcefulness may give some back (History shows it as kept).")
+    end,
+}
+
+-- What one craft makes, after the AH cut
+local function CraftWorth(p)
+    return p.unitPrice and p.unitPrice * p.perCraft * (1 - AH_CUT)
+end
+
+local CRAFT = {
+    view = function() return ProfessionsFrame and ProfessionsFrame.CraftingPage end,
+    form = function(view) return view.SchematicForm end,
+    preview = function(view, tx, form)
+        local okR, recipeID = pcall(tx.GetRecipeID, tx)
+        return addon:GetCraftPreview(tx, okR and recipeID and ShownOutput(form, recipeID))
+    end,
+    -- Totals for one craft with the per-item figure beside them, as the
+    -- Crafts tab's "each" (user, 2026-10-11: "is that per tonic or for
+    -- all 5?")
+    lines = function(p)
+        local cost = (p.complete and "" or "at least ") .. Money(p.cost)
+            .. string.format(" (%s each)", Money(p.cost / p.perCraft))
+        local second
+        if not p.sellable then
+            second = addon:Colorize("Can't be sold on the AH", "muted")
+        elseif not p.unitPrice then
+            second = addon:Colorize("No AH price for what it makes", "muted")
+        else
+            local profit = CraftWorth(p) - p.cost
+            second = "Profit: " .. (p.complete and "" or "at most ")
+                .. addon:Colorize(addon:FormatSignedMoney(profit), addon:MoneyColor(profit))
+                .. string.format(" (%s each)", addon:FormatSignedMoney(profit / p.perCraft))
+        end
+        return "Your materials: " .. cost, second
+    end,
+    -- Short enough to sit in the empty space under the lines, clear of the
+    -- Crafting Details panel, and everything shown at once: no Ctrl
+    -- explanation (user, 2026-10-11: it ran over the panel, and Ctrl did
+    -- nothing on it). The AH price always shows; the profit comes from it.
+    tooltip = function(tooltip, p)
+        tooltip:AddLine("Goldsmith: one craft", addon:Color("gold"))
+        AddMaterials(tooltip, p.mats)
+        if p.saved > 0 then
+            tooltip:AddDoubleLine("Resourcefulness (average)", "-" .. Money(p.saved), 1, 1, 1, 1, 1, 1)
+        end
+        local made = p.perCraft == math.floor(p.perCraft) and tostring(p.perCraft)
+            or string.format("%.1f", p.perCraft)
+        if not p.sellable then
+            tooltip:AddDoubleLine("Makes " .. made, "can't be sold", 1, 1, 1, 0.8, 0.8, 0.8)
+        elseif p.unitPrice then
+            tooltip:AddDoubleLine("Makes " .. made, Money(CraftWorth(p)) .. " after AH cut", 1, 1, 1, 1, 1, 1)
+            if p.opened then
+                -- A bound box: what's inside, not an AH price (user,
+                -- 2026-10-11: how does a soulbound bag have a price?)
+                tooltip:AddDoubleLine("What's inside", Money(p.unitPrice) .. " each", 1, 1, 1, 1, 1, 1)
+                tooltip:AddLine(string.format("Average of %d opened, at AH prices", p.opened), 0.6, 0.6, 0.6)
+            else
+                tooltip:AddDoubleLine("AH price", Money(p.unitPrice) .. " each", 1, 1, 1, 1, 1, 1)
+            end
+        else
+            tooltip:AddDoubleLine("Makes " .. made, "no price", 1, 1, 1, 0.8, 0.8, 0.8)
+        end
+        if p.perCraft ~= p.base then
+            tooltip:AddLine(string.format("%d a craft, plus multicraft on average", p.base), 0.6, 0.6, 0.6)
+        end
+    end,
+}
+
+-- One holder per page
+local function Create(page, form)
+    local holder = CreateFrame("Frame", nil, form)
     holder:SetSize(WIDTH, 40 + LOGO_SIZE + 4)
     -- The logo on its own line, so both text lines start at the same place
     -- (it sat in front of the first one, user, 2026-10-11)
@@ -110,18 +189,29 @@ local function Create(form)
     logo:SetTexture(LOGO)
     logo:SetSize(LOGO_SIZE, LOGO_SIZE)
     logo:SetPoint("TOPLEFT", 0, 0)
-    line1 = UI.Text(holder, "small", "text")
-    line1:SetPoint("TOPLEFT", logo, "BOTTOMLEFT", 0, -4)
-    line1:SetWidth(WIDTH)
-    line2 = UI.Text(holder, "small", "text")
-    line2:SetPoint("TOPLEFT", line1, "BOTTOMLEFT", 0, -4)
-    line2:SetWidth(WIDTH)
+    holder.line1 = UI.Text(holder, "small", "text")
+    holder.line1:SetPoint("TOPLEFT", logo, "BOTTOMLEFT", 0, -4)
+    holder.line1:SetWidth(WIDTH)
+    holder.line2 = UI.Text(holder, "small", "text")
+    holder.line2:SetPoint("TOPLEFT", holder.line1, "BOTTOMLEFT", 0, -4)
+    holder.line2:SetWidth(WIDTH)
     holder:EnableMouse(true)
-    UI.SetTooltip(holder, FillTooltip, "ANCHOR_NONE")
+    UI.SetTooltip(holder, function(tooltip)
+        local p = page.preview
+        if not p then return end
+        -- Under the line, not over the window's Crafting Details (user, 2026-10-11)
+        tooltip:ClearAllPoints()
+        tooltip:SetPoint("TOPLEFT", holder, "BOTTOMLEFT", 0, -4)
+        page.def.tooltip(tooltip, p)
+        if not p.complete then
+            tooltip:AddLine("Some materials have no price, so the cost is at least this.", addon:Color("warning"))
+        end
+    end, "ANCHOR_NONE")
+    page.holder = holder
 end
 
 -- Below the lowest of the form's material lists that's showing
-local function Place(form)
+local function Place(holder, form)
     local below = form.Reagents
     if form.OptionalReagents and form.OptionalReagents:IsShown() then below = form.OptionalReagents end
     if not below then return false end
@@ -130,17 +220,21 @@ local function Place(form)
     return true
 end
 
-local function Update()
-    pending = false
-    local view, form = OrderView(), Form()
+local function Update(page)
+    page.pending = false
+    local def = page.def
+    local view = def.view()
+    local form = view and def.form(view)
     if not (view and form and view:IsShown() and form:IsShown()) then
-        if holder then holder:Hide() end
+        if page.holder then page.holder:Hide() end
         return
     end
-    if not holder then Create(form) end
-    local ok, p = pcall(addon.GetOrderPreview, addon, view.order, form.GetTransaction and form:GetTransaction())
-    preview = ok and p or nil
-    if not (preview and Place(form)) then
+    if not page.holder then Create(page, form) end
+    local holder = page.holder
+    local tx = form.GetTransaction and form:GetTransaction()
+    local ok, p = pcall(def.preview, view, tx, form)
+    page.preview = ok and tx and p or nil
+    if not (page.preview and Place(holder, form)) then
         holder:Hide()
         return
     end
@@ -148,47 +242,43 @@ local function Update()
     -- In the window's font, set each time: the slots exist only once a
     -- recipe has been shown
     local font = NativeFont(form)
-    line1:SetFontObject(font)
-    line2:SetFontObject(font)
-    line1:SetTextColor(1, 1, 1)
-    line2:SetTextColor(1, 1, 1)
-
-    -- Just your cost and the profit: the window already marks what the
-    -- customer supplies and shows the commission (user, 2026-10-11); the
-    -- hover has the rest
-    local cost
-    if #preview.mats == 0 then
-        cost = "none"
-    else
-        cost = (preview.complete and "" or "at least ") .. Money(preview.cost)
+    for _, line in ipairs({ holder.line1, holder.line2 }) do
+        line:SetFontObject(font)
+        line:SetTextColor(1, 1, 1)
     end
-    line1:SetText("Your materials: " .. cost)
-
-    local profit = preview.commission + preview.rewardsValue - preview.cost
-    line2:SetText("Profit: " .. (preview.complete and "" or "at most ")
-        .. addon:Colorize(addon:FormatSignedMoney(profit), addon:MoneyColor(profit)))
+    local first, second = def.lines(page.preview)
+    holder.line1:SetText(first)
+    holder.line2:SetText(second)
     holder:Show()
     if GameTooltip:IsOwned(holder) and UI.RedrawTooltip then UI.RedrawTooltip(holder) end
 end
 
-local function UpdateSoon()
-    if pending then return end
-    pending = true
-    C_Timer.After(0.05, Update)
+local function UpdateSoon(page)
+    if page.pending then return end
+    page.pending = true
+    C_Timer.After(0.05, function() Update(page) end)
 end
 
--- The order window is part of Blizzard_Professions, loaded the first time
--- a profession or the crafting orders open
-local function Hook()
-    local view, form = OrderView(), Form()
-    if hooked or not (view and form) then return end
-    hooked = true
-    if view.SetOrder then hooksecurefunc(view, "SetOrder", UpdateSoon) end
-    view:HookScript("OnShow", UpdateSoon)
-    view:HookScript("OnHide", UpdateSoon)
-    form:HookScript("OnShow", UpdateSoon)
+-- The windows are part of Blizzard_Professions, loaded the first time a
+-- profession or the crafting orders open
+local pages = { { def = ORDER }, { def = CRAFT } }
+
+local function Hook(page)
+    local view = page.def.view()
+    local form = view and page.def.form(view)
+    if page.hooked or not (view and form) then return end
+    page.hooked = true
+    local soon = function() UpdateSoon(page) end
+    if view.SetOrder then hooksecurefunc(view, "SetOrder", soon) end
+    -- A recipe picked in the list, and the details panel (quality,
+    -- concentration) redrawn
+    if form.Init then hooksecurefunc(form, "Init", soon) end
+    if form.UpdateDetailsStats then hooksecurefunc(form, "UpdateDetailsStats", soon) end
+    view:HookScript("OnShow", soon)
+    view:HookScript("OnHide", soon)
+    form:HookScript("OnShow", soon)
     if form.RegisterCallback and ProfessionsRecipeSchematicFormMixin and ProfessionsRecipeSchematicFormMixin.Event then
-        pcall(form.RegisterCallback, form, ProfessionsRecipeSchematicFormMixin.Event.AllocationsModified, UpdateSoon, callbackOwner)
+        pcall(form.RegisterCallback, form, ProfessionsRecipeSchematicFormMixin.Event.AllocationsModified, soon, page)
     end
 end
 
@@ -197,8 +287,10 @@ for _, event in ipairs({ "ADDON_LOADED", "TRADE_SKILL_SHOW", "BAG_UPDATE_DELAYED
     events:RegisterEvent(event)
 end
 events:SetScript("OnEvent", function(_, event)
-    Hook()
-    if event == "BAG_UPDATE_DELAYED" and holder and holder:IsShown() then UpdateSoon() end
+    for _, page in ipairs(pages) do
+        Hook(page)
+        if event == "BAG_UPDATE_DELAYED" and page.holder and page.holder:IsShown() then UpdateSoon(page) end
+    end
 end)
 
 _G.Goldsmith = addon

@@ -8,7 +8,8 @@ local addon = _G.Goldsmith or {}
 -- ("You receive loot: ..."), one running total per item, character and day:
 --   GoldsmithDB.gathered = { { day = "YYYY-MM-DD", time (latest), itemID,
 --     name, qty, value (copper at the AH price when gathered, for History),
---     character, realm } }
+--     character, realm, box (what came out of a box you crafted: kept
+--     apart, with cost and costQty, see ShareBoxCost) } }
 -- Kept apart from the ledger so it never counts as money spent.
 --
 -- What they're worth stays the AH price (you could sell them instead, so a
@@ -80,6 +81,109 @@ local function FromOpenedBag()
     return GetTime() < openedUntil
 end
 
+-- Boxes you craft (School of Gems, Box of Rocks, Bouquet of Herbs): bound,
+-- so they're worth what's inside, and nobody publishes the odds (2026-10-11).
+-- What comes out each time you open one is kept:
+--   GoldsmithDB.boxContents[boxItemID] = { opened, items = { [itemID] = qty } }
+-- GetBoxValue turns that into the box's worth (Pricing.lua prices it with
+-- that, and Crafts lists the recipe once one has been opened).
+-- Payout bags from crafting orders (Artisan's Consortium) are tracked the
+-- same way, so an order's profit can count the bag at what's inside on
+-- average (Pricing.lua, ValueRewards); what comes out of them stays
+-- gathered (user, 2026-10-11).
+local openingBox -- the box being opened, while its loot comes in
+local openingCrafted -- it's one you crafted (its loot isn't gathered)
+local boxUntil = 0
+
+local function IsCraftedBox(itemID)
+    for _, recipe in pairs(GoldsmithDB.recipes) do
+        if recipe.outputItemID == itemID then return true end
+    end
+    return false
+end
+
+-- A bag you've had as a crafting order's reward
+local function IsRewardBag(itemID)
+    for _, lot in ipairs(GoldsmithDB.orderCrafts or {}) do
+        for _, r in ipairs(lot.rewards or {}) do
+            if r.itemID == itemID then return true end
+        end
+    end
+    return false
+end
+
+-- What comes out of a box isn't gathered: it cost what the box cost to
+-- make (user, 2026-10-11: "they weren't free"). Its materials are kept
+-- apart (entry.box) with a share of that cost each, by value, so 11 cheap
+-- herbs don't each cost as much as 5 dear ones: entry.cost (copper) for
+-- entry.costQty of them. GetAcquiredCost counts them like a purchase.
+local openingLoot -- { { entry, qty, value } } from the box being opened
+
+local function ShareBoxCost(cost, loot)
+    if not cost or #loot == 0 then return end
+    local total, qty = 0, 0
+    for _, l in ipairs(loot) do total, qty = total + l.value, qty + l.qty end
+    for _, l in ipairs(loot) do
+        local share = total > 0 and l.value / total or l.qty / qty
+        l.entry.cost = (l.entry.cost or 0) + cost * share
+        l.entry.costQty = (l.entry.costQty or 0) + l.qty
+    end
+    version = version + 1
+end
+
+-- crafted: a box you crafted (its loot is kept apart, with a cost); else
+-- a payout bag (only what's inside is noted)
+local function BoxOpened(itemID, crafted)
+    GoldsmithDB.boxContents = GoldsmithDB.boxContents or {}
+    local box = GoldsmithDB.boxContents[itemID] or { opened = 0, items = {} }
+    GoldsmithDB.boxContents[itemID] = box
+    box.opened = box.opened + 1
+    openingBox, openingCrafted, boxUntil = itemID, crafted, GetTime() + OPENED_GRACE
+    if not crafted then
+        openingLoot = nil
+        return
+    end
+    -- Your newest craft of the box: what this one cost
+    local cost = addon:GetCraftedCost(itemID, 1)
+    local loot = {}
+    openingLoot = loot
+    C_Timer.After(OPENED_GRACE + 1, function() ShareBoxCost(cost, loot) end)
+end
+
+-- Returns the box it came out of if one you crafted, else true if it came
+-- out of a payout bag
+local function BoxLoot(itemID, qty)
+    if not openingBox or GetTime() >= boxUntil then return nil end
+    local box = GoldsmithDB.boxContents[openingBox]
+    box.items[itemID] = (box.items[itemID] or 0) + qty
+    if openingCrafted then return openingBox end
+    return true
+end
+
+-- A box's worth: the average of what came out of it at today's prices.
+-- Returns copper per box, times opened, and whether everything had a
+-- price; nil if none has been opened.
+function addon:GetBoxValue(itemID)
+    local box = itemID and GoldsmithDB.boxContents and GoldsmithDB.boxContents[itemID]
+    if not (box and box.opened > 0 and next(box.items)) then return nil end
+    local total, complete = 0, true
+    for id, qty in pairs(box.items) do
+        local price = addon:GetMarketPrice(id)
+        if price then total = total + price * qty else complete = false end
+    end
+    return total / box.opened, box.opened, complete
+end
+
+-- What's inside on average: { { itemID, each (per box) } }, most first
+function addon:GetBoxContents(itemID)
+    local box = itemID and GoldsmithDB.boxContents and GoldsmithDB.boxContents[itemID]
+    if not (box and box.opened > 0) then return nil end
+    local list = {}
+    for id, qty in pairs(box.items) do table.insert(list, { itemID = id, each = qty / box.opened }) end
+    table.sort(list, function(a, b) return a.each > b.each end)
+    return list, box.opened
+end
+
 local function Busy()
     castingSince = nil
     busyUntil = GetTime() + CRAFT_GRACE
@@ -100,14 +204,17 @@ local function Note(text, result)
     if #recent > RECENT_LIMIT then table.remove(recent, 1) end
 end
 
-local function Key(day, character, realm, itemID)
-    return day .. "|" .. tostring(character) .. "|" .. tostring(realm) .. "|" .. itemID
+-- box: the box it came out of, payout: out of a payout bag (each kept
+-- apart from what you gathered yourself)
+local function Key(day, character, realm, itemID, box, payout)
+    return day .. "|" .. tostring(character) .. "|" .. tostring(realm) .. "|" .. itemID .. "|"
+        .. tostring(box or (payout and "payout") or "")
 end
 
 local function BuildLookup()
     lookup = {}
     for _, e in ipairs(GoldsmithDB.gathered) do
-        lookup[Key(e.day, e.character, e.realm, e.itemID)] = e
+        lookup[Key(e.day, e.character, e.realm, e.itemID, e.box, e.payout)] = e
     end
 end
 
@@ -128,23 +235,29 @@ local function LinkName(link)
     return text ~= "" and text or nil
 end
 
--- Returns true if recorded
-function addon:RecordGathered(itemID, qty, link)
+-- Returns true if recorded. box: the crafted box it came out of;
+-- payout: it came out of a crafting order's payout bag (its worth counted
+-- in the order's profit already, so selling it isn't profit again;
+-- GetOwnCost)
+function addon:RecordGathered(itemID, qty, link, box, payout)
     local name = C_Item.GetItemNameByID(itemID) or LinkName(link)
     if not name or qty <= 0 or not IsMaterial(itemID, name) then return false end
     local now = time()
     local day = date("%Y-%m-%d", now)
     local character, realm = UnitName("player"), GetRealmName()
-    local key = Key(day, character, realm, itemID)
+    local key = Key(day, character, realm, itemID, box, payout)
     local e = lookup[key]
     if not e then
-        e = { day = day, itemID = itemID, name = name, qty = 0, value = 0, character = character, realm = realm }
+        e = { day = day, itemID = itemID, name = name, qty = 0, value = 0, character = character, realm = realm,
+              box = box, payout = payout or nil }
         table.insert(GoldsmithDB.gathered, e)
         lookup[key] = e
     end
+    local value = (addon:GetMarketPrice(itemID) or 0) * qty
     e.qty = e.qty + qty
-    e.value = e.value + (addon:GetMarketPrice(itemID) or 0) * qty
+    e.value = e.value + value
     e.time = now
+    if box and openingLoot then table.insert(openingLoot, { entry = e, qty = qty, value = value }) end
     version = version + 1
     -- No addon.Refresh: gathering is constant and costs would be worked
     -- out again every herb. Everything catches up on the next refresh.
@@ -164,12 +277,16 @@ local function OnLoot(message)
             if not itemID then return end
             local text = link .. (count and (" x" .. count) or "")
             local fromBag = FromOpenedBag()
+            local from = fromBag and BoxLoot(itemID, tonumber(count) or 1)
+            local box = type(from) == "number" and from or nil
+            local payout = from == true
             if not fromBag and Crafting() then
                 Note(text, "skipped: from a craft or salvage")
             elseif not fromBag and p.pushed and next(open) then
                 Note(text, "skipped: a vendor, mailbox, trade or AH was open")
-            elseif addon:RecordGathered(itemID, tonumber(count) or 1, link) then
-                Note(text, fromBag and "counted (from a bag you opened)" or "counted")
+            elseif addon:RecordGathered(itemID, tonumber(count) or 1, link, box, payout) then
+                Note(text, box and "counted (from a box you crafted)" or payout and "counted (from a payout bag)"
+                    or fromBag and "counted (from a bag you opened)" or "counted")
             else
                 Note(text, "skipped: not a crafting material")
             end
@@ -248,6 +365,8 @@ end
 --                           (nil if none are)
 --   gatheredQty, itemIDs  - units covered by gathering, and how many of
 --                           each item ID (tiers are priced apart)
+--   ownIDs                - of those, the ones you gathered yourself (not
+--                           out of a payout bag), by item ID
 -- or nil if you've never bought or gathered it.
 -- exactItemID: only that item (one quality tier): silver and gold of a
 -- material share a name, and by name a silver Munsell Ink was costed at
@@ -267,7 +386,13 @@ function addon:GetAcquiredCost(itemName, exactItemID, skip)
     local gatheredCount = 0
     for _, e in ipairs(gathered or {}) do
         if not exactItemID or e.itemID == exactItemID then
-            list[#list + 1] = { time = e.time or 0, qty = e.qty, itemID = e.itemID }
+            if e.box and e.cost and (e.costQty or 0) > 0 then
+                -- Out of a box you crafted: its share of the box's cost,
+                -- like a purchase
+                list[#list + 1] = { time = e.time or 0, qty = e.qty, copper = e.cost / e.costQty * e.qty }
+            else
+                list[#list + 1] = { time = e.time or 0, qty = e.qty, itemID = e.itemID, payout = e.payout }
+            end
             ids[e.itemID] = true
             gatheredCount = gatheredCount + 1
         end
@@ -282,10 +407,10 @@ function addon:GetAcquiredCost(itemName, exactItemID, skip)
     local held = 0
     for itemID in pairs(ids) do held = held + addon:HeldAnywhere(itemID) end
 
-    local remaining, copper, paidQty, gatheredQty, gatheredIDs = math.max(held, 1), 0, 0, 0, {}
+    local remaining, copper, paidQty, gatheredQty, gatheredIDs, ownIDs = math.max(held, 1), 0, 0, 0, {}, {}
     if skip and skip > 0 and held > 0 then
         remaining = held - skip
-        if remaining <= 0 then return nil, 0, 0, {} end
+        if remaining <= 0 then return nil, 0, 0, {}, {} end
     end
     for i = #list, 1, -1 do
         local a = list[i]
@@ -293,6 +418,7 @@ function addon:GetAcquiredCost(itemName, exactItemID, skip)
         if a.itemID then
             gatheredQty = gatheredQty + take
             gatheredIDs[a.itemID] = (gatheredIDs[a.itemID] or 0) + take
+            if not a.payout then ownIDs[a.itemID] = (ownIDs[a.itemID] or 0) + take end
         else
             copper = copper + a.copper / a.qty * take
             paidQty = paidQty + take
@@ -300,7 +426,7 @@ function addon:GetAcquiredCost(itemName, exactItemID, skip)
         remaining = remaining - take
         if remaining <= 0 then break end
     end
-    return paidQty > 0 and copper / paidQty or nil, paidQty, gatheredQty, gatheredIDs
+    return paidQty > 0 and copper / paidQty or nil, paidQty, gatheredQty, gatheredIDs, ownIDs
 end
 
 -- What the ones you hold cost you in gold, gathered ones counting as free:
@@ -402,10 +528,14 @@ end
 function addon:RestoreGathered(removed)
     for _, r in ipairs(removed or {}) do
         local e = r.entry
-        local existing = lookup[Key(e.day, e.character, e.realm, e.itemID)]
+        local existing = lookup[Key(e.day, e.character, e.realm, e.itemID, e.box, e.payout)]
         if existing then
             existing.qty = existing.qty + (e.qty or 0)
             existing.value = (existing.value or 0) + (e.value or 0)
+            if e.cost then
+                existing.cost = (existing.cost or 0) + e.cost
+                existing.costQty = (existing.costQty or 0) + (e.costQty or 0)
+            end
         else
             table.insert(GoldsmithDB.gathered, math.min(r.index, #GoldsmithDB.gathered + 1), e)
         end
@@ -428,6 +558,11 @@ function addon:InitializeGathered()
             local ok, info = pcall(C_Container.GetContainerItemInfo, bag, slot)
             if ok and type(info) == "table" and not (canaccesstable and not canaccesstable(info)) and info.hasLoot then
                 OpenedBag()
+                if info.itemID and IsCraftedBox(info.itemID) then
+                    BoxOpened(info.itemID, true)
+                elseif info.itemID and IsRewardBag(info.itemID) then
+                    BoxOpened(info.itemID, false)
+                end
             end
         end)
     end

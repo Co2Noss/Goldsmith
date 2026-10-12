@@ -197,7 +197,8 @@ local function ConcentrationAction(conc)
     local first = best.plan[1]
     local items = {}
     for _, p in ipairs(best.plan) do
-        table.insert(items, { itemID = p.recipe.outputItemID, name = p.recipe.outputName })
+        table.insert(items, { itemID = p.recipe.outputItemID, name = p.recipe.outputName,
+            qty = math.floor(p.crafts * (p.row.outputPerCraft or 1)) })
     end
     return {
         items = items,
@@ -253,7 +254,8 @@ local function CooldownAction(prof)
     local first = crafts[1]
     local items = {}
     for i = 1, math.min(#crafts, CRAFTS_SHOWN) do
-        table.insert(items, { itemID = crafts[i].recipe.outputItemID, name = crafts[i].recipe.outputName })
+        table.insert(items, { itemID = crafts[i].recipe.outputItemID, name = crafts[i].recipe.outputName,
+            qty = math.floor(crafts[i].crafts * (crafts[i].outputPerCraft or 1)) })
     end
     return {
         items = items,
@@ -294,7 +296,8 @@ local function CraftsAction(crafts, prof)
     end
     local items = {}
     for i = 1, math.min(#crafts, CRAFTS_SHOWN) do
-        table.insert(items, { itemID = crafts[i].recipe.outputItemID, name = crafts[i].recipe.outputName })
+        table.insert(items, { itemID = crafts[i].recipe.outputItemID, name = crafts[i].recipe.outputName,
+            qty = crafts[i].make })
     end
     return {
         items = items,
@@ -504,6 +507,186 @@ local function FillActionRow(row, action)
     local textHeight = row.title:GetStringHeight() + 5 + row.detail:GetStringHeight()
     row:SetHeight(math.max(56, math.ceil(11 + textHeight + 12)))
     row:Show()
+end
+
+-- Gold goal (user, 2026-10-11: "that seems fun")
+--
+-- Gold to make, counted from when it's set, in total gold (all characters
+-- and the warband bank, the same as the Total gold chart): beside that
+-- chart's title, "42% of 5,000g" with a small bar, and a dashed line on the
+-- chart at where you'll be once you're GOAL_LINE_FROM of the way. It was a
+-- total to reach at first; the user typed 5,000g meaning gold to make, and
+-- a total starts most of the way there (93% of 2.5M), so it counts from 0%
+-- now (user, 2026-10-11). Saved as GoldsmithDB.goldGoal = { make (copper),
+-- set (time), start (total gold then) }; the first version's goals (no
+-- make) are dropped. No deadline for now (user).
+local GOAL_LINE_FROM = 0.5
+local GOAL_BAR_WIDTH = 60
+
+-- "10000", "10,000g", "10k", "1.5m" -> copper; nil if it isn't a number
+local function ParseGold(text)
+    text = (text or ""):lower():gsub("[,%s]", ""):gsub("g$", "")
+    local number, suffix = text:match("^(%d*%.?%d+)([km]?)$")
+    number = tonumber(number)
+    if not number then return nil end
+    if suffix == "k" then number = number * 1000 elseif suffix == "m" then number = number * 1000000 end
+    return math.floor(number * 10000 + 0.5)
+end
+
+local function CurrentGold()
+    local history = addon:GetAccountGoldHistory(1)
+    return history[1] and history[1].copper or 0
+end
+
+local function GoalBox(popup)
+    return popup.GetEditBox and popup:GetEditBox() or popup.editBox
+end
+
+-- The goal, or nil (a first-version goal without `make` is dropped)
+local function Goal()
+    local goal = GoldsmithDB.goldGoal
+    if goal and not goal.make then
+        GoldsmithDB.goldGoal = nil
+        return nil
+    end
+    return goal
+end
+
+-- Gold made toward it so far (can be below 0 after spending)
+local function GoalMade(goal, now)
+    return now - (goal.start or now)
+end
+
+-- "in 3 days", "in under a day": how long reaching it took (goal.reached
+-- is saved the first time it's reached, user 2026-10-11)
+local function GoalTookText(goal)
+    local days = math.floor(((goal.reached or time()) - goal.set) / 86400)
+    if days < 1 then return "in under a day" end
+    return string.format("in %d day%s", days, days == 1 and "" or "s")
+end
+
+local function AcceptGoal(popup)
+    local copper = ParseGold(GoalBox(popup):GetText())
+    if not copper then
+        addon:Notify("info", "Gold goal not changed: enter an amount like 5000 or 5k.")
+        return
+    end
+    if copper <= 0 then
+        GoldsmithDB.goldGoal = nil
+    else
+        GoldsmithDB.goldGoal = { make = copper, set = time(), start = CurrentGold() }
+    end
+    addon.RefreshWindow()
+end
+
+StaticPopupDialogs["GOLDSMITH_GOLD_GOAL"] = {
+    text = "How much gold do you want to make?\nCounted from now, across all your characters and the warband bank\n(e.g. 5000 or 5k; 0 clears it)",
+    button1 = OKAY or "OK",
+    button2 = CANCEL or "Cancel",
+    hasEditBox = true,
+    OnShow = function(self)
+        local box = GoalBox(self)
+        local goal = Goal()
+        box:SetText(goal and tostring(math.floor(goal.make / 10000)) or "")
+        box:HighlightText()
+        box:SetFocus()
+    end,
+    OnAccept = AcceptGoal,
+    EditBoxOnEnterPressed = function(box)
+        local popup = box:GetParent()
+        AcceptGoal(popup)
+        popup:Hide()
+    end,
+    EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
+    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+}
+
+-- The chart's goal line (the total you'll have), once you're close enough
+-- for it to fit
+local function GoalLineOpts(now)
+    local goal = Goal()
+    if not goal or GoalMade(goal, now) < goal.make * GOAL_LINE_FROM then return nil end
+    return { goal = goal.start + goal.make, goalText = "goal +" .. Money(goal.make) }
+end
+
+local function CreateGoal(parent)
+    local f = CreateFrame("Button", nil, parent)
+    f:SetSize(GOAL_BAR_WIDTH, 18)
+    f.track = f:CreateTexture(nil, "BACKGROUND")
+    f.track:SetColorTexture(addon:Color("barEmpty"))
+    f.track:SetSize(GOAL_BAR_WIDTH, 6)
+    f.track:SetPoint("LEFT", 0, 0)
+    f.fill = f:CreateTexture(nil, "ARTWORK")
+    f.fill:SetHeight(6)
+    f.fill:SetPoint("LEFT", f.track, "LEFT")
+    f.text = UI.Text(f, "small", "muted")
+
+    function f:Update(now)
+        self.now = now
+        local goal = Goal()
+        self.text:ClearAllPoints()
+        if not goal then
+            self.track:Hide(); self.fill:Hide()
+            self.text:SetPoint("LEFT", 0, 0)
+            self.text:SetText("Set a goal")
+            self.text:SetTextColor(addon:Color("muted"))
+        else
+            local made = GoalMade(goal, now)
+            local share = math.max(math.min(made / goal.make, 1), 0)
+            local reached = made >= goal.make or goal.reached ~= nil
+            if made >= goal.make and not goal.reached then goal.reached = time() end
+            if reached then share = 1 end
+            self.track:Show()
+            self.fill:SetColorTexture(addon:Color(reached and "profit" or "gold"))
+            self.fill:SetWidth(math.max(GOAL_BAR_WIDTH * share, 1))
+            self.fill:Show()
+            self.text:SetPoint("LEFT", self.track, "RIGHT", 8, 0)
+            self.text:SetText(reached and string.format("+%s reached %s", Money(goal.make), GoalTookText(goal))
+                or string.format("%d%% of %s", math.floor(share * 100), Money(goal.make)))
+            self.text:SetTextColor(addon:Color(reached and "profit" or "text"))
+        end
+        self:SetWidth((goal and (GOAL_BAR_WIDTH + 8) or 0) + self.text:GetStringWidth())
+        self:Show()
+    end
+
+    UI.SetTooltip(f, function(tooltip)
+        local goal = Goal()
+        if not goal then
+            tooltip:AddLine("Set a gold goal", 1, 1, 1)
+            tooltip:AddLine("How much gold you want to make, counted from when you set it, across all your "
+                .. "characters and the warband bank. The chart shows it as a line once you're halfway.",
+                0.6, 0.6, 0.6, true)
+            addon:ClickHint(tooltip, "Click to set one.")
+            return
+        end
+        local now = f.now or 0
+        local made = GoalMade(goal, now)
+        tooltip:AddLine("Gold goal: make " .. Money(goal.make), 1, 1, 1)
+        local r, g, b = addon:Color(addon:MoneyColor(made))
+        tooltip:AddDoubleLine("Made since " .. date("%b %d", goal.set), Signed(made), 0.8, 0.8, 0.8, r, g, b)
+        if goal.reached then
+            tooltip:AddDoubleLine("Reached " .. date("%b %d", goal.reached), GoalTookText(goal),
+                0.8, 0.8, 0.8, addon:Color("profit"))
+        else
+            tooltip:AddDoubleLine("To go", Money(goal.make - made), 0.8, 0.8, 0.8, 1, 1, 1)
+        end
+        tooltip:AddDoubleLine("Total gold then / now", Money(goal.start) .. " / " .. Money(now),
+            0.8, 0.8, 0.8, 1, 1, 1)
+        addon:Explain(tooltip, "Counts any change in your total gold: sales and orders, but also gold spent on materials or anything else.")
+        tooltip:AddLine(" ")
+        addon:ClickHint(tooltip, goal.reached and "Click to set the next one."
+            or "Click to change it (starts counting again; 0 clears it).")
+    end)
+    f:SetScript("OnClick", function() StaticPopup_Show("GOLDSMITH_GOLD_GOAL") end)
+    -- "Set a goal" turns gold under the mouse, like a link
+    f:HookScript("OnEnter", function(self)
+        if not Goal() then self.text:SetTextColor(addon:Color("gold")) end
+    end)
+    f:HookScript("OnLeave", function(self)
+        if not Goal() then self.text:SetTextColor(addon:Color("muted")) end
+    end)
+    f:Hide()
+    return f
 end
 
 -- Chart
@@ -851,6 +1034,8 @@ local function Create(parent)
     prevButton:SetPoint("RIGHT", nextButton, "LEFT", -2, 0)
     view.chartPage = UI.Text(chartPanel, "label", "dim", "RIGHT")
     view.chartPage:SetPoint("RIGHT", prevButton, "LEFT", -4, 0)
+    view.goal = CreateGoal(chartPanel)
+    view.goal:SetPoint("LEFT", view.chartTitle, "RIGHT", 14, 0)
 
     local chartArea = CreateFrame("Frame", nil, chartPanel)
     chartArea:SetPoint("TOPLEFT", 16, -62)
@@ -937,11 +1122,11 @@ local function Refresh(view, state)
     if craftsAction then table.insert(list, craftsAction) end
     -- Note what's suggested, so a craft of it soon after counts as followed
     if not inSetup then
-        local names = {}
+        local items = {}
         for _, action in ipairs({ concAction, cooldownAction, craftsAction }) do
-            for _, item in ipairs(action and action.items or {}) do table.insert(names, item.name) end
+            for _, item in ipairs(action and action.items or {}) do table.insert(items, item) end
         end
-        addon:MarkSuggested(names)
+        addon:MarkSuggested(items)
     end
     view.followed:Update(inSetup)
     -- Order: concentration, cooldowns, best crafts, salvage, cheap
@@ -973,13 +1158,24 @@ local function Refresh(view, state)
     if not CHARTS[index] then index = 1 end
     local chart = CHARTS[index]
     local points, subtitle, kind, empty = ChartData(chart.key, state)
-    view.chartTitle:SetText(chart.title)
+    -- With a goal, the gold chart is about the goal (user, 2026-10-11)
+    view.chartTitle:SetText(chart.key == "gold" and Goal() and "Gold goal" or chart.title)
     view.chartSubtitle:SetText(subtitle or "")
     view.chartPage:SetFormattedText("%d / %d", index, #CHARTS)
     view.barChart:SetShown(kind == "bar" and not empty)
     view.lineChart:SetShown(kind == "line" and not empty)
+    -- The gold goal: beside the Total gold title, and a line on its chart
+    local goalOpts
+    if chart.key == "gold" then
+        local last = points[#points]
+        local now = last and last.value or 0
+        view.goal:Update(now)
+        goalOpts = GoalLineOpts(now)
+    else
+        view.goal:Hide()
+    end
     if not empty then
-        (kind == "bar" and view.barChart or view.lineChart):SetData(points)
+        (kind == "bar" and view.barChart or view.lineChart):SetData(points, goalOpts)
     end
     view.chartEmpty:SetShown(empty and true or false)
     view.chartEmpty:SetText(empty or "")

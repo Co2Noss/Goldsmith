@@ -121,6 +121,7 @@ end
 
 function UI.BeginTooltip(owner, redraw)
     tip.owner, tip.redraw, tip.hidden, tip.explained = owner, redraw, false, false
+    tip.ctrl = IsControlKeyDown()
 end
 
 function UI.EndTooltip(tooltip)
@@ -226,12 +227,18 @@ function addon:ShiftClickItem(itemID, name)
     return false
 end
 
+-- Ctrl going down or up while a Goldsmith hover shows draws it again. Read
+-- each frame rather than from MODIFIER_STATE_CHANGED: the event didn't
+-- reach the window's hovers ("Hold Ctrl to explain" did nothing on the gold
+-- goal, user 2026-10-11). Cheap: one key check while a hover is up.
 local modifierWatch = CreateFrame("Frame")
-modifierWatch:RegisterEvent("MODIFIER_STATE_CHANGED")
-modifierWatch:SetScript("OnEvent", function(_, _, key)
-    if key ~= "LCTRL" and key ~= "RCTRL" then return end
-    if not tip.redraw then return end
-    if GameTooltip:IsShown() and GameTooltip:GetOwner() == tip.owner then tip.redraw() end
+modifierWatch:SetScript("OnUpdate", function()
+    if not tip.redraw or not GameTooltip:IsShown() or GameTooltip:GetOwner() ~= tip.owner then return end
+    local ctrl = IsControlKeyDown()
+    if ctrl ~= tip.ctrl then
+        tip.ctrl = ctrl
+        tip.redraw()
+    end
 end)
 
 -- Hover tooltip. fill(tooltip, frame) adds the lines; nothing shows if it
@@ -531,9 +538,14 @@ end
 -- (not from zero), so changes in a large total stay visible.
 -- chart:SetData(points, opts): opts.band = { low, high, usual } shades the
 -- usual range and marks the usual value (e.g. an item's usual price).
+-- opts.goal draws a dashed gold line at that value, labelled opts.goalText
+-- (the Overview's gold goal); the scale stretches to fit it.
+local GOAL_DASH, GOAL_GAP = 6, 4
 function UI.LineChart(parent)
     local chart = CreateFrame("Frame", nil, parent)
-    chart.lines, chart.dots = {}, {}
+    chart.lines, chart.dots, chart.goalDashes = {}, {}, {}
+    chart.goalLabel = UI.Text(chart, "label", "gold", "RIGHT")
+    chart.goalLabel:Hide()
     chart.bandArea = chart:CreateTexture(nil, "BACKGROUND")
     chart.bandArea:SetColorTexture(addon:Color("band"))
     chart.bandLine = chart:CreateTexture(nil, "BORDER")
@@ -550,6 +562,7 @@ function UI.LineChart(parent)
         local n = #points
         HideFrom(chart.lines, 1); HideFrom(chart.dots, 1); HideFrom(chart.hovers, 1)
         chart.bandArea:Hide(); chart.bandLine:Hide()
+        HideFrom(chart.goalDashes, 1); chart.goalLabel:Hide()
         if n == 0 or w <= 0 or h <= 0 then return end
 
         local minV, maxV = math.huge, -math.huge
@@ -559,6 +572,10 @@ function UI.LineChart(parent)
         local band = chart.band
         if band then
             minV, maxV = math.min(minV, band.low), math.max(maxV, band.high)
+        end
+        local goal = chart.goal
+        if goal then
+            minV, maxV = math.min(minV, goal), math.max(maxV, goal)
         end
         local range = maxV - minV
         -- A flat line sits in the middle
@@ -576,6 +593,35 @@ function UI.LineChart(parent)
                 chart.bandLine:SetPoint("BOTTOMRIGHT", chart, "BOTTOMRIGHT", 0, Y(band.usual))
                 chart.bandLine:Show()
             end
+        end
+        if goal then
+            local y = Y(goal)
+            local r, g, b = addon:Color("gold")
+            local i, x = 0, 0
+            while x < w do
+                i = i + 1
+                local dash = chart.goalDashes[i]
+                if not dash then
+                    dash = chart:CreateTexture(nil, "BORDER")
+                    dash:SetHeight(1)
+                    chart.goalDashes[i] = dash
+                end
+                dash:SetColorTexture(r, g, b, 0.7)
+                dash:ClearAllPoints()
+                dash:SetPoint("BOTTOMLEFT", chart, "BOTTOMLEFT", x, y)
+                dash:SetWidth(math.min(GOAL_DASH, w - x))
+                dash:Show()
+                x = x + GOAL_DASH + GOAL_GAP
+            end
+            -- Above the line at the right, or below it when at the top
+            chart.goalLabel:SetText(chart.goalText or "goal")
+            chart.goalLabel:ClearAllPoints()
+            if y + 16 > h then
+                chart.goalLabel:SetPoint("TOPRIGHT", chart, "BOTTOMRIGHT", 0, y - 3)
+            else
+                chart.goalLabel:SetPoint("BOTTOMRIGHT", chart, "BOTTOMRIGHT", 0, y + 3)
+            end
+            chart.goalLabel:Show()
         end
         local step = n > 1 and w / (n - 1) or 0
         local function X(i) return n > 1 and (i - 1) * step or w / 2 end
@@ -619,6 +665,7 @@ function UI.LineChart(parent)
     function chart:SetData(points, opts)
         chart.points = points
         chart.band = opts and opts.band
+        chart.goal, chart.goalText = opts and opts.goal, opts and opts.goalText
         chart:Draw()
     end
     chart:SetScript("OnSizeChanged", function() chart:Draw() end)
@@ -976,8 +1023,27 @@ function UI.List(parent, opts)
 
     function list:SetItems(items)
         list.items = items
+        -- A row asked for (ScrollToItem): at the top, or the list at its
+        -- end when it's near the bottom (Update keeps the offset in range)
+        local wanted = list.scrollTarget
+        if wanted then
+            list.scrollTarget = nil
+            local index
+            for _, match in ipairs(wanted) do
+                for i, item in ipairs(items) do
+                    if match(item) then index = i break end
+                end
+                if index then break end
+            end
+            list.offset = index and index - 1 or 0
+        end
         list:Update()
     end
+
+    -- The next SetItems scrolls to the first item a test matches: tests is
+    -- a list tried in turn (the best match first), so Back from the
+    -- planner lands on the craft you were at (user, 2026-10-11)
+    function list:ScrollToItem(tests) list.scrollTarget = tests end
 
     function list:SetSort(key, descending)
         list.sortKey, list.sortDescending = key, descending

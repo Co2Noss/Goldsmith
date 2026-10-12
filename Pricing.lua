@@ -234,13 +234,18 @@ function addon:GetBlizzardDataTime()
     return GoldsmithPriceData and GoldsmithPriceData.updated
 end
 
--- True if Blizzard AH data is under a day old and the last Auctionator scan
--- was before it and on an earlier day (an older scan loses to fresh data)
+-- True if Blizzard AH data is under a day old and no Auctionator full scan
+-- came after it (the newer one wins). An AH search doesn't count: it only
+-- updates the items searched, and Goldsmith's own record of those (Search)
+-- comes first anyway.
+-- It used to: one shift-click search on a character with Auctionator made
+-- every item use Auctionator's days-old prices over Goldsmith Data from the
+-- same hour (Gleeful Glamour dropped out of Best crafts, user 2026-10-11).
 function addon:BlizzardDataBeatsScan()
     local updated = addon:GetBlizzardDataTime()
-    local scan = GoldsmithDB.lastPriceUpdate
     if not updated or time() - updated >= 86400 then return false end
-    return not scan or (scan < updated and date("%Y-%m-%d", scan) ~= date("%Y-%m-%d"))
+    local full = GoldsmithDB.lastFullScan
+    return not full or full < updated
 end
 
 -- Lowest price, or the market price when the lowest looks like a small
@@ -378,7 +383,15 @@ function addon:GetAHPriceInfo(itemID)
     local auctionator = addon:GetAuctionatorPrice(itemID)
     local age = auctionator and GetAuctionatorAge(itemID)
     local price, source
-    local useAuctionator = auctionator and (preferred == "auctionator"
+    -- Goldsmith Data from this hour beats an Auctionator price from "today"
+    -- (its age is in whole days, so maybe hours ago) unless a full scan came
+    -- after it; what you searched shows as Search above. Before, a price
+    -- seen today, or any search this session, made Auctionator win: with it
+    -- on, Maddoxynn's to-do had Missive of the Harmonious, without it the
+    -- Quickblade (user, 2026-10-11).
+    local dataWins = auctionator and preferred ~= "auctionator"
+        and addon:BlizzardDataBeatsScan() and GetBlizzardPrice(itemID) ~= nil
+    local useAuctionator = auctionator and not dataWins and (preferred == "auctionator"
         or (preferred ~= "tsm" and age == 0 and addon:ScannedThisSession()))
     if useAuctionator then
         price, source = auctionator, "Auctionator"
@@ -386,8 +399,7 @@ function addon:GetAHPriceInfo(itemID)
         local tsm = GetTSMValue("DBMinBuyout", itemID)
         if tsm then
             price, source, age = tsm, "TSM", nil
-        elseif auctionator and (preferred == "auctionator" or (age or 0) < 1
-                or not addon:BlizzardDataBeatsScan() or not GetBlizzardPrice(itemID)) then
+        elseif auctionator and not dataWins then
             price, source = auctionator, "Auctionator"
         else
             -- No price from either addon, or Auctionator's is a day or more
@@ -457,6 +469,10 @@ end
 -- "Vendor". Same returns as GetAHPriceInfo.
 function addon:GetMarketPriceInfo(itemID)
     if not itemID then return nil end
+    -- A box you craft and have opened (School of Gems): what's inside, on
+    -- average (Gathered.lua). It can't go on the AH itself.
+    local box = addon.GetBoxValue and addon:GetBoxValue(itemID)
+    if box then return box, "Contents", nil end
     local price, source, age, note = addon:GetAHPriceInfo(itemID)
     local vendor = addon:GetVendorPrice(itemID)
     if vendor and (not price or vendor <= price) then
@@ -513,6 +529,10 @@ function addon:PlainPriceSourceText(itemID, source, age)
     if source == "TSM sale avg" then return "TSM sale average" end
     if source == "Blizzard" then return BlizzardAgeText() end
     if source == "Vendor" then return "vendor" end
+    if source == "Contents" then
+        local _, opened = addon:GetBoxValue(itemID)
+        return string.format("what's inside, average of %d opened", opened or 0)
+    end
     if source == "Auctionator" then
         return age and ("Auctionator, " .. addon:FormatAge(age, itemID):gsub("^from ", "")) or "Auctionator"
     end
@@ -1553,15 +1573,50 @@ local function TakeOffProvided(used, provided, slotOf)
     end
 end
 
--- Rewards you could sell, at their AH price; bound ones (knowledge,
+-- What a bound reward bag (Artisan's Consortium payout) is worth: the
+-- average of what came out of the ones you opened (Gathered.lua tracks
+-- them), and how many that is; nil before you've opened one. The bag's
+-- contents stay gathered materials when opened, valued at the AH price as
+-- their cost, so counting the bag here (the order's profit) isn't counted
+-- again (user, 2026-10-11).
+local function BagValue(itemID)
+    local inside, opened = addon:GetBoxValue(itemID)
+    if inside then return inside, opened end
+end
+
+-- Rewards you could sell, at their AH price; a payout bag at what's inside
+-- on average (r.opened: from how many); other bound ones (knowledge,
 -- currencies) are listed at 0. Sets each reward's value; returns the total.
 local function ValueRewards(rewards)
     local total = 0
     for _, r in ipairs(rewards or {}) do
         local price = addon:CanAuction(r.itemID) and addon:GetAHPrice(r.itemID)
-        r.value = price and price * r.count or 0
+        local inside, opened
+        if not price then inside, opened = BagValue(r.itemID) end
+        r.value = (price or inside or 0) * r.count
+        r.opened = opened
         total = total + r.value
     end
+    return total
+end
+
+-- A saved order craft's reward, worth now: what was saved, or for a payout
+-- bag valued 0 then, its contents average since (orders from before you
+-- opened one). Returns the value and, for a bag, from how many opened.
+function addon:RewardValueNow(r)
+    local value, opened = r.value or 0, r.opened
+    if value == 0 then
+        local inside, n = BagValue(r.itemID)
+        if inside then value, opened = inside * (r.count or 1), n end
+    end
+    return value, opened
+end
+
+-- All of a saved order craft's rewards, worth now (RewardValueNow)
+function addon:LotRewardsValue(lot)
+    if not lot.rewards then return lot.rewardsValue or 0 end
+    local total = 0
+    for _, r in ipairs(lot.rewards) do total = total + (addon:RewardValueNow(r)) end
     return total
 end
 
@@ -1604,10 +1659,11 @@ local function RequiredSlots(recipeID)
     return slots, schematic.outputItemID
 end
 
-function addon:GetOrderPreview(order, tx)
-    if type(order) ~= "table" or not tx then return nil end
-    local okR, recipeID = pcall(tx.GetRecipeID, tx)
-    recipeID = (okR and recipeID) or order.spellID
+-- What the form's craft uses: { [itemID] = quantity } from the required
+-- slots (the form's qualities, the lowest for what isn't allocated) and
+-- any optional materials added; with slotOf ({ [itemID] = the slot's
+-- itemIDs }), the output's item, and the form's list (for checking)
+local function FormMaterials(recipeID, tx)
     local required, outputID = RequiredSlots(recipeID)
     if not required then return nil end
 
@@ -1643,31 +1699,108 @@ function addon:GetOrderPreview(order, tx)
     for id, qty in pairs(allocated) do
         if not slotOf[id] then used[id] = (used[id] or 0) + qty end
     end
+    return used, slotOf, outputID, okA and list or nil
+end
 
-    local provided = GetProvided(order.reagents)
-    -- For checking from the saved file if the line looks wrong
-    GoldsmithDB.orderPreviewDebug = { time = time(), recipeID = recipeID,
-        allocated = okA and PlainCopy(list, 3) or nil, provided = provided,
-        orderReagents = PlainCopy(order.reagents, 4) }
-    TakeOffProvided(used, provided, slotOf)
+-- One material at today's value, as the Crafts tab counts it (SlotCost):
+-- the price, or making it yourself (milling, your crafts) when that's
+-- cheaper, or what you paid when there's no price
+local function TodaysUnit(id, name, outputID)
+    local best = addon:GetMarketPrice(id)
+    if name and id ~= outputID then
+        for _, made in ipairs({ addon:GetMilledCost(name) or false, addon:GetCraftedCostByName(name) or false }) do
+            if made and (not best or made < best) then best = made end
+        end
+    end
+    return best or (name and addon:GetOwnCost(name, outputID, id))
+end
 
-
+-- What those materials cost you (GetOwnCost, else the price; or with
+-- today: today's value, as in Crafts): cost, complete (all priced),
+-- mats = { { itemID, qty, unit } } (dearest first)
+local function ValueMaterials(used, outputID, today)
     local cost, complete, mats = 0, true, {}
     for id, qty in pairs(used) do
         if qty > 0 then
             local name = C_Item.GetItemNameByID(id)
-            local unit = (name and addon:GetOwnCost(name, outputID, id)) or addon:GetMarketPrice(id)
+            local unit
+            if today then
+                unit = TodaysUnit(id, name, outputID)
+            else
+                unit = (name and addon:GetOwnCost(name, outputID, id)) or addon:GetMarketPrice(id)
+            end
             if unit then cost = cost + unit * qty else complete = false end
             table.insert(mats, { itemID = id, qty = qty, unit = unit })
         end
     end
     table.sort(mats, function(a, b) return (a.unit or 0) * a.qty > (b.unit or 0) * b.qty end)
+    return cost, complete, mats
+end
 
+function addon:GetOrderPreview(order, tx)
+    if type(order) ~= "table" or not tx then return nil end
+    local okR, recipeID = pcall(tx.GetRecipeID, tx)
+    recipeID = (okR and recipeID) or order.spellID
+    local used, slotOf, outputID, list = FormMaterials(recipeID, tx)
+    if not used then return nil end
+
+    local provided = GetProvided(order.reagents)
+    -- For checking from the saved file if the line looks wrong
+    GoldsmithDB.orderPreviewDebug = { time = time(), recipeID = recipeID,
+        allocated = list and PlainCopy(list, 3) or nil, provided = provided,
+        orderReagents = PlainCopy(order.reagents, 4) }
+    TakeOffProvided(used, provided, slotOf)
+
+    local cost, complete, mats = ValueMaterials(used, outputID)
     local rewards = GetOrderRewards(order)
     return {
         cost = cost, complete = complete, mats = mats, provided = provided,
         commission = math.max((order.tipAmount or 0) - (order.consortiumCut or 0), 0),
         rewards = rewards, rewardsValue = ValueRewards(rewards),
+    }
+end
+
+-- The same for one of your own crafts in the game's profession window
+-- (user, 2026-10-11: Box of Rocks isn't in Goldsmith, so what does it
+-- cost?): every material is yours. outputItemID: the item at the quality
+-- the window shows, if known. Valued as the Crafts tab does, so the two
+-- agree (user, 2026-10-11: the window said 53.11g where Crafts said
+-- 18.90g, as Sunglass Vials counted at what your own crafts cost, not
+-- today's 2.75g): today's prices, and your multicraft and resourcefulness
+-- averages (GetCraftModel). Returns { cost (after resourcefulness),
+-- complete, mats (full quantities), saved (what resourcefulness saves on
+-- average), itemID, perCraft (items a craft makes on average), base
+-- (without multicraft), unitPrice (its price, nil if none), sellable
+-- (false when it can't go on the AH) }, or nil for a recipe without
+-- materials (salvage).
+function addon:GetCraftPreview(tx, outputItemID)
+    if not tx then return nil end
+    local okR, recipeID = pcall(tx.GetRecipeID, tx)
+    if not (okR and recipeID) then return nil end
+    local used, _, outputID = FormMaterials(recipeID, tx)
+    if not (used and next(used)) then return nil end
+    local full, complete, mats = ValueMaterials(used, outputID, true)
+    local recipe = GoldsmithDB.recipes[recipeID]
+    local itemID = outputItemID or outputID or (recipe and recipe.outputItemID)
+    -- A bound box is worth what's inside once you've opened one
+    local bound = itemID and addon:CanAuction(itemID) == false
+    local _, opened = addon:GetBoxValue(itemID)
+    local sellable = not bound or opened ~= nil
+    local base = (recipe and recipe.outputQty) or 1
+    local perCraft, useFactor = base, 1
+    if recipe and recipe.reagents and #recipe.reagents > 0 then
+        local made, slots = addon:GetCraftModel(recipe)
+        local first = slots[1]
+        perCraft = made or base
+        if first and (first.slot.quantity or 0) > 0 then useFactor = first.quantity / first.slot.quantity end
+    end
+    return {
+        cost = full * useFactor, saved = full * (1 - useFactor), complete = complete, mats = mats,
+        itemID = itemID, perCraft = perCraft, base = base,
+        unitPrice = sellable and itemID and addon:GetMarketPrice(itemID) or nil,
+        sellable = sellable,
+        -- A bound box: priced by what's inside, from this many opened
+        opened = bound and opened or nil,
     }
 end
 
@@ -1829,8 +1962,13 @@ function addon:RecordCraftLot(recipe, resultData, usedReagents, isOrder, orderTe
     local lots = GoldsmithDB.craftLots[resultData.itemID] or {}
     GoldsmithDB.craftLots[resultData.itemID] = lots
     craftLotsVersion = craftLotsVersion + 1
-    -- Made after Goldsmith suggested it (GetFollowedSummary)
-    if addon.WasSuggested and addon:WasSuggested(lot.name) then lot.suggested = true end
+    -- Made while Goldsmith suggested it, up to the number suggested
+    -- (TakeSuggested, GetFollowedSummary). The price it would sell for then
+    -- is kept, to see later how the suggestion held up.
+    if addon.TakeSuggested and addon:TakeSuggested(lot.name, lot.qty) then
+        lot.suggested = true
+        lot.expectedPrice = addon:GetMarketPrice(resultData.itemID)
+    end
     table.insert(lots, lot)
     while #lots > CRAFT_LOT_LIMIT do
         table.remove(lots, 1)
@@ -1922,17 +2060,65 @@ end
 -- exactItemID: that one item (quality tier) only, not every quality with
 -- the name: a craft's materials are valued this way (RecordCraftLot), so
 -- silver ink isn't costed at the average with gold (2026-10-10).
-function addon:GetOwnCost(itemName, excludeItemID, exactItemID)
+-- How many of what you hold of one item are your own crafts: crafts,
+-- purchases and gathering taken newest first together, up to what you
+-- hold (the newest one when you hold none). Crafts used to come first
+-- whatever their age, so one Sunglass Vial made at 70g on Oct 4 stayed
+-- "held" after hundreds bought at 2.75g since, and yours cost 12.37g
+-- each (user, 2026-10-11: "sunglass vial is a vendor item").
+local function CraftedUnitsHeld(itemName, itemID, lots)
+    local list = {}
+    for _, lot in ipairs(lots) do
+        list[#list + 1] = { time = lot.time or 0, qty = lot.qty or 0, crafted = true }
+    end
+    for _, e in ipairs(addon.ledger:index().purchases[itemName] or {}) do
+        if e.itemID == itemID and (e.quantity or 0) > 0 then
+            list[#list + 1] = { time = e.timestamp or 0, qty = e.quantity }
+        end
+    end
+    for _, e in ipairs(addon.GatheredIndex and addon:GatheredIndex()[itemName] or {}) do
+        if e.itemID == itemID then list[#list + 1] = { time = e.time or 0, qty = e.qty or 0 } end
+    end
+    table.sort(list, function(a, b) return a.time > b.time end)
+    local remaining = math.max(addon.HeldAnywhere and addon:HeldAnywhere(itemID) or 0, 1)
+    local crafted = 0
+    for _, a in ipairs(list) do
+        local take = math.min(a.qty, remaining)
+        if a.crafted then crafted = crafted + take end
+        remaining = remaining - take
+        if remaining <= 0 then break end
+    end
+    return crafted
+end
+
+-- forSale: for a sale's profit (GetUnitCostBasis). What you gathered
+-- yourself is free then: nothing counted its worth before, so selling it
+-- is profit (user, 2026-10-11). What came out of a payout bag still counts
+-- at its AH price: the order's profit counted the bag already. Crafting
+-- with either keeps the AH price (what you could sell them for).
+function addon:GetOwnCost(itemName, excludeItemID, exactItemID, forSale)
     local sources = {}
     local crafted, craftedQty
     if exactItemID then
-        if exactItemID ~= excludeItemID then crafted, craftedQty = addon:GetCraftedCost(exactItemID) end
+        local lots = exactItemID ~= excludeItemID and GoldsmithDB.craftLots[exactItemID]
+        local units = lots and #lots > 0 and CraftedUnitsHeld(itemName, exactItemID, lots) or 0
+        if units > 0 then crafted, craftedQty = addon:GetCraftedCost(exactItemID, units) end
     else
         crafted, craftedQty = addon:GetCraftedCostByName(itemName)
         if excludeItemID and C_Item.GetItemNameByID(excludeItemID) == itemName then crafted = nil end
     end
-    local paid, paidQty, _, gatheredIDs = addon:GetAcquiredCost(itemName, exactItemID, crafted and craftedQty)
+    local paid, paidQty, _, gatheredIDs, ownIDs = addon:GetAcquiredCost(itemName, exactItemID, crafted and craftedQty)
     if paid then table.insert(sources, { "paid", paid, paidQty }) end
+    if forSale and ownIDs and next(ownIDs) then
+        local free, rest = 0, {}
+        for id, n in pairs(gatheredIDs) do
+            local own = ownIDs[id] or 0
+            free = free + own
+            if n - own > 0 then rest[id] = n - own end
+        end
+        if free > 0 then table.insert(sources, { "free", 0, free }) end
+        gatheredIDs = rest
+    end
     -- Gathered ones at today's AH price: what you could sell them for
     local gathered, gatheredQty = addon:GatheredValue(gatheredIDs)
     if gathered then table.insert(sources, { "gathered", gathered, gatheredQty }) end
@@ -2114,9 +2300,9 @@ function addon:GetUnitCostBasis(itemName, units, itemID)
     -- Glass bought at 13.79g were recorded as sold at a cost of 119.86g each
     -- (its recipe's estimate), a 10,000g loss that was really about 200g
     -- (2026-10-10)
-    local own = addon:GetOwnCost(itemName, nil, itemID)
+    local own, ownSource = addon:GetOwnCost(itemName, nil, itemID, true)
     if own then
-        return own, false, "paid"
+        return own, false, ownSource == "free" and "free" or "paid"
     end
     local recipe = addon:FindRecipeByOutput(itemName)
     if recipe then
@@ -2439,12 +2625,15 @@ function addon:AddRecipeTooltipLines(tooltip, recipe, itemID, showBreakdown, sho
             or "|cFF00FF00Goldsmith|r profit crafting now"
         tooltip:AddDoubleLine(label, profitText, 1, 1, 1, r, g, b)
         -- Without Auctionator or TSM the price itself, not just its age:
-        -- nothing else in the tooltip shows it then (2026-10-09)
+        -- nothing else in the tooltip shows it then (2026-10-09). A line of
+        -- its own, not a Ctrl detail: the profit is that price less the
+        -- cost (user, 2026-10-11: "can it show the AH price?")
         if not short then
             if addon:HasAuctionator() or addon:HasTSM() then
                 Detail(tooltip, "AH price " .. info.priceAgeText)
             else
-                Detail(tooltip, string.format("AH price %s (%s)", FormatGold(info.price), info.priceAgeText))
+                tooltip:AddDoubleLine("|cFF00FF00Goldsmith|r AH price",
+                    string.format("%s each (%s)", FormatGold(info.price), info.priceAgeText), 1, 1, 1, 1, 1, 1)
             end
         end
     end

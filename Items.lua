@@ -416,7 +416,7 @@ local function StockTooltip(tooltip, item)
     tooltip:AddLine(ItemText(item.name, item.itemID), 1, 1, 1)
     addon:AddItemDescription(tooltip, item.itemID)
     for _, entry in ipairs(item.byCharacter or {}) do
-        tooltip:AddDoubleLine(entry.name, tostring(entry.count), 0.8, 0.8, 0.8, 1, 1, 1)
+        tooltip:AddDoubleLine(entry.name, addon:StockWhereText(entry), 0.8, 0.8, 0.8, 1, 1, 1)
     end
     tooltip:AddLine(item.crafted and "Valued at what your latest crafts cost you."
         or "Valued at what you paid, or the AH price when there's no cost.", 0.6, 0.6, 0.6, true)
@@ -723,7 +723,7 @@ local function CreatePage(parent)
         t[4].tooltip = function(tooltip)
             tooltip:AddLine("You have", 1, 1, 1)
             for _, entry in ipairs(d.byCharacter or {}) do
-                tooltip:AddDoubleLine(entry.name, tostring(entry.count), 0.8, 0.8, 0.8, 1, 1, 1)
+                tooltip:AddDoubleLine(entry.name, addon:StockWhereText(entry), 0.8, 0.8, 0.8, 1, 1, 1)
             end
             if d.have == 0 then tooltip:AddLine("None on any character or in the warband bank.", 0.6, 0.6, 0.6, true) end
             if heldDays then

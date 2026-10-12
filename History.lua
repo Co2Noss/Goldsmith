@@ -23,11 +23,12 @@ local KINDS = {
     { key = "Craft", label = "Crafts" },
     { key = "Order", label = "Orders" },
     { key = "Gathered", label = "Gathered" },
+    { key = "Opened", label = "Opened" },
 }
 local KIND_COLORS = { Sale = "profit", Purchase = "loss", Deposit = "warning", Craft = "line", Order = "muted",
-                      Gathered = "gold" }
+                      Gathered = "gold", Opened = "gold" }
 local KIND_LONG = { Sale = "Sale", Purchase = "Purchase", Deposit = "AH deposit", Craft = "Craft", Order = "Crafting order",
-                    Gathered = "Gathered" }
+                    Gathered = "Gathered", Opened = "Opened a box you crafted" }
 
 -- Where a sale's cost came from, for the hover
 local COST_LABELS = {
@@ -98,7 +99,8 @@ local function FillRow(r, row)
     end
 end
 
--- A gathered day's hover lists this many materials, most valuable first
+-- A gathered day's hover lists this many materials, most valuable first;
+-- all of them with Ctrl (user, 2026-10-11: "and 14 more" hid the rest)
 local GATHERED_LINES = 15
 
 local function Tooltip(tooltip, row)
@@ -117,17 +119,36 @@ local function Tooltip(tooltip, row)
     end
     Line("Type", KIND_LONG[row.kind], KIND_COLORS[row.kind])
     Line("Quantity", tostring(row.qty))
-    if row.kind == "Gathered" then
+    if row.kind == "Gathered" or row.kind == "Opened" then
+        local all = IsControlKeyDown()
         for i, item in ipairs(row.items) do
-            if i > GATHERED_LINES and #row.items > GATHERED_LINES + 1 then
-                tooltip:AddLine(string.format("and %d more", #row.items - GATHERED_LINES), 0.6, 0.6, 0.6)
+            if not all and i > GATHERED_LINES and #row.items > GATHERED_LINES + 1 then
+                tooltip:AddLine(string.format("and %d more (hold Ctrl to see them all)", #row.items - GATHERED_LINES),
+                    0.6, 0.6, 0.6)
                 break
             end
-            Line(addon:ProfessionIconText(item.profession) .. item.name .. " x" .. item.qty,
-                item.value > 0 and Money(item.value) or "no price", item.value > 0 and "text" or "dim")
+            -- Its quality before the name, as in the lists (user,
+            -- 2026-10-11; silver and gold of a material are separate lines)
+            local tier, tierCount = addon:GetItemTier(item.itemID)
+            local tierIcon = tier and tierCount and tierCount > 1 and (addon:TierIconText(tier, tierCount) .. " ") or ""
+            local right = item.value > 0 and Money(item.value) or "no price"
+            -- Out of a box: what each cost you, its share of the box
+            if item.cost and item.qty > 0 then right = Money(item.cost / item.qty) .. " each, worth " .. right end
+            Line(addon:ProfessionIconText(item.profession) .. tierIcon .. item.name .. " x" .. item.qty,
+                right, item.value > 0 and "text" or "dim")
         end
         Line("Worth at the AH price", Money(row.worth))
-        addon:Explain(tooltip, "Materials you got without buying them: gathering, loot, and bags you opened (patron order rewards, caches). Costs count them at the AH price, since you could sell them instead, and what you paid for others no longer gets spread over them.", 0.6, 0.6, 0.6, true)
+        if row.kind == "Opened" then
+            if row.cost then
+                Line("The box cost you", Money(row.cost))
+                Line("Profit after the AH cut", addon:FormatSignedMoney(row.profit), addon:MoneyColor(row.profit))
+            else
+                Line("The box cost you", "not known", "dim")
+            end
+            addon:Explain(tooltip, "What came out of a box you crafted. It cost what the box cost to make, shared over the materials by their value, so each counts at its share, like a purchase.")
+        else
+            addon:Explain(tooltip, "Materials you got without buying them: gathering, loot, and bags you opened (patron order rewards, caches). Costs count them at the AH price, since you could sell them instead, and what you paid for others no longer gets spread over them.", 0.6, 0.6, 0.6, true)
+        end
         Line("When", row.time > 0 and date("%Y-%m-%d", row.time) or "?")
         tooltip:AddLine(" ")
         if row.itemID then addon:ClickHint(tooltip, "Click for the item's page") end
@@ -142,8 +163,11 @@ local function Tooltip(tooltip, row)
             if lot.kept then Line("Materials you kept", Money(lot.kept)) end
             for _, r in ipairs(lot.rewards or {}) do
                 local name = C_Item.GetItemNameByID(r.itemID) or "Reward"
-                Line("Reward: " .. name .. (r.count > 1 and (" x" .. r.count) or ""),
-                    r.value > 0 and Money(r.value) or "can't be sold", r.value > 0 and "text" or "dim")
+                -- A payout bag: what's inside on average
+                local value, opened = addon:RewardValueNow(r)
+                local text = value > 0 and Money(value) or "can't be sold"
+                if opened then text = string.format("about %s (avg of %d opened)", Money(value), opened) end
+                Line("Reward: " .. name .. (r.count > 1 and (" x" .. r.count) or ""), text, value > 0 and "text" or "dim")
             end
             Line(row.partial and "Profit (at most)" or "Profit", Signed(row.profit), addon:MoneyColor(row.profit))
         else
@@ -190,7 +214,7 @@ local function Deleted(row, restore)
 end
 
 local function ConfirmDelete(row)
-    if row.kind == "Gathered" then
+    if row.kind == "Gathered" or row.kind == "Opened" then
         local removed = addon:RemoveGathered(row.entries)
         Deleted(row, function() addon:RestoreGathered(removed) end)
         return
@@ -216,7 +240,7 @@ local function Menu(row)
     if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
     MenuUtil.CreateContextMenu(UIParent, function(_, root)
         root:CreateTitle(row.item)
-        if row.kind == "Gathered" then
+        if row.kind == "Gathered" or row.kind == "Opened" then
             if row.itemID then
                 root:CreateButton("Open the item's page", function() addon:OpenItem(row.item, row.itemID) end)
             end
@@ -333,7 +357,7 @@ local function Create(parent)
                 if button ~= "RightButton" then Undo(row) end
             elseif button == "RightButton" then
                 Menu(row)
-            elseif row.kind ~= "Gathered" or row.itemID then
+            elseif (row.kind ~= "Gathered" and row.kind ~= "Opened") or row.itemID then
                 addon:OpenItem(row.item, row.itemID)
             end
         end,

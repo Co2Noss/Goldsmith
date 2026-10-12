@@ -219,9 +219,12 @@ end
 
 -- Gear in bags and bank (character's and warband's) by tier, read slot by
 -- slot. Containers the game hasn't loaded are skipped; their items count
--- as "tier unknown" (see GetHeld). Returns own tiers, warband tiers.
+-- as "tier unknown" (see GetHeld). Bound gear can't be sold, so it's left
+-- out and counted apart. Returns own tiers, warband tiers, bound
+-- ({ [itemID] = count } in your bags and bank), bound in the warband bank.
 local function ScanGearTiers(ids)
     local own, warband, seen = {}, {}, {}
+    local bound, boundWarband = {}, {}
     for name, bag in pairs(Enum.BagIndex or {}) do
         local tiers = (name:find("^Account") and warband)
             or ((name == "Backpack" or name:find("^Bag_") or name == "ReagentBag"
@@ -232,13 +235,31 @@ local function ScanGearTiers(ids)
             for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 if info and ids[info.itemID] and addon:IsGear(info.itemID) then
-                    local tier = GearTier(info.hyperlink)
-                    if tier then AddTier(tiers, info.itemID, tier, info.stackCount or 1) end
+                    if info.isBound == true then
+                        local list = tiers == warband and boundWarband or bound
+                        list[info.itemID] = (list[info.itemID] or 0) + (info.stackCount or 1)
+                    else
+                        local tier = GearTier(info.hyperlink)
+                        if tier then AddTier(tiers, info.itemID, tier, info.stackCount or 1) end
+                    end
                 end
             end
         end
     end
-    return own, warband
+    return own, warband, bound, boundWarband
+end
+
+-- What you have equipped ({ [itemID] = count }): gear and profession tools
+-- in use aren't stock (the item count includes them; an equipped Sin'dorei
+-- Quill counted 2,400g in Gold in stock, user 2026-10-11)
+local LAST_EQUIPPED_SLOT = 30 -- past the profession tool and gear slots
+local function EquippedItems()
+    local equipped = {}
+    for slot = 1, LAST_EQUIPPED_SLOT do
+        local ok, itemID = pcall(GetInventoryItemID, "player", slot)
+        if ok and type(itemID) == "number" then equipped[itemID] = (equipped[itemID] or 0) + 1 end
+    end
+    return equipped
 end
 
 -- The game reports the bank and warband bank even while they're closed
@@ -248,18 +269,29 @@ end
 local function SnapshotStock()
     local c = addon.char
     local stock, warband, warbandTotal = {}, {}, 0
+    -- How many of each are in the bank, for "where is it" in hovers (the
+    -- rest are in your bags; user, 2026-10-11)
+    local inBank = {}
     local ids = GetStockItemIDs()
+    local gearTiers, warbandTiers, bound, boundWarband = ScanGearTiers(ids)
+    local equipped = EquippedItems()
     for itemID in pairs(ids) do
         local own = C_Item.GetItemCount(itemID, true, false, true, false) or 0
         local withWarband = C_Item.GetItemCount(itemID, true, false, true, true) or 0
+        local inBags = (C_Item.GetItemCount(itemID, false, false, true, false) or 0) - (equipped[itemID] or 0)
+        local inWarband = withWarband - own
+        -- Not for sale: what you wear, and bound gear
+        own = own - (equipped[itemID] or 0) - (bound[itemID] or 0)
+        inWarband = inWarband - (boundWarband[itemID] or 0)
         if own > 0 then stock[itemID] = own end
-        if withWarband > own then
-            warband[itemID] = withWarband - own
-            warbandTotal = warbandTotal + withWarband - own
+        local bank = math.min(own, math.max(own - math.max(inBags, 0), 0))
+        if bank > 0 then inBank[itemID] = bank end
+        if inWarband > 0 then
+            warband[itemID] = inWarband
+            warbandTotal = warbandTotal + inWarband
         end
     end
-    local gearTiers, warbandTiers = ScanGearTiers(ids)
-    c.stock, c.gearTiers, c.stockTime = stock, gearTiers, time()
+    c.stock, c.gearTiers, c.stockTime, c.stockBank = stock, gearTiers, time(), inBank
     -- Left over from when bags and bank were kept separately
     c.bagStock, c.bankStock, c.bankTime = nil, nil, nil
     if warbandTotal > 0 or next(GoldsmithDB.warbandStock) == nil then
@@ -276,7 +308,10 @@ function addon:GetStock(itemID)
     for key, c in pairs(GoldsmithDB.characters) do
         local count = addon:IsCharacterIncluded(key) and c.stock[itemID]
         if count and count > 0 then
-            table.insert(list, { key = key, name = c.name, count = count })
+            -- bank: how many of them are in the bank (nil: not known yet,
+            -- saved before this was kept)
+            local bank = c.stockBank and math.min(c.stockBank[itemID] or 0, count)
+            table.insert(list, { key = key, name = c.name, count = count, bank = bank })
             total = total + count
         end
     end
@@ -287,6 +322,15 @@ function addon:GetStock(itemID)
     end
     table.sort(list, function(a, b) return a.count > b.count end)
     return total, list
+end
+
+-- "4 (bags)", "2 (bank)", "4 (3 bags, 1 bank)" for a GetStock entry
+function addon:StockWhereText(entry)
+    local count = tostring(entry.count)
+    if entry.key == "warband" or entry.bank == nil then return count end
+    if entry.bank == 0 then return count .. " (bags)" end
+    if entry.bank >= entry.count then return count .. " (bank)" end
+    return string.format("%d (%d bags, %d bank)", entry.count, entry.count - entry.bank, entry.bank)
 end
 
 -- Auctions

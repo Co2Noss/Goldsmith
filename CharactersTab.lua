@@ -161,7 +161,7 @@ local function CreateTodoLine(card, i)
         tooltip:AddDoubleLine("Makes about", tostring(item.quantity), 0.8, 0.8, 0.8, 1, 1, 1)
         addon:Explain(tooltip, "The crafts times what each makes, with multicraft's extra items on average.")
         tooltip:AddDoubleLine("Profit", Signed(item.profit), 0.8, 0.8, 0.8, 0.37, 0.81, 0.48)
-        addon:Explain(tooltip, "For all of them: the AH price less the 5% cut, less what they cost to make.")
+        addon:Explain(tooltip, "For all of them: the AH price after the 5% cut, minus what they cost to make.")
         local perPoint = item.concentration and item.row.concentrationValue
         if item.concentration then
             tooltip:AddDoubleLine("Concentration", tostring(math.floor(item.concentration + 0.5)),
@@ -421,13 +421,15 @@ local function Refresh(view, state)
     local todo = addon:GetCharacterTodo(state.profession)
     -- Note what's suggested, so a craft of it soon after counts as followed
     -- (Overview's "followed")
-    local names = {}
+    local items = {}
     for _, t in pairs(todo) do
         for _, item in ipairs(t.items or {}) do
-            if item.recipe and item.recipe.outputName then table.insert(names, item.recipe.outputName) end
+            if item.recipe and item.recipe.outputName then
+                table.insert(items, { name = item.recipe.outputName, qty = item.quantity })
+            end
         end
     end
-    addon:MarkSuggested(names)
+    addon:MarkSuggested(items)
     view.followed:Update()
     view.hidden:Update()
     -- After the label when it shows, else after the note

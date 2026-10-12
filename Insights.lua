@@ -86,6 +86,10 @@ function addon:WhyNotRecommended(recipe, row, shownExpansions)
         and not (shownExpansions and addon:IsExpansionShown(addon:GetRecipeExpansion(recipe))) then
         return "From an older expansion. Its listings often sit unsold, so the profit may not be real. Pick its expansion at the top to judge it on its sales."
     end
+    -- A bound box you've opened (Bouquet of Herbs): no sales of its own, it's
+    -- worth the materials inside, which sell (user, 2026-10-11: worth making
+    -- for what's inside)
+    if addon:CanAuction(itemID) == false and addon:GetBoxValue(itemID) then return nil end
     -- Without TSM, Goldsmith Data's sell level decides (TSM comes first
     -- when it's installed). Gear isn't in it (realm by realm), so it goes on
     -- to the rules below.
@@ -621,7 +625,8 @@ function addon:GetCooldownCrafts(prof)
     local list = {}
     for _, cd in ipairs(addon.GetCooldowns and addon:GetCooldowns(prof) or {}) do
         local recipe = cd.recipe
-        if cd.ready and recipe and addon:CanAuction(recipe.outputItemID) ~= false then
+        if cd.ready and recipe and (addon:CanAuction(recipe.outputItemID) ~= false
+                or addon:GetBoxValue(recipe.outputItemID) ~= nil) then
             local row, outputPerCraft = PlainRowFor(cd.charKey, recipe)
             if row and row.profit and row.profit > 0 and not row.partial
                 and (row.margin or 0) >= addon:Setting("minROI") and IsRecommendable(recipe, row) then
@@ -789,32 +794,79 @@ end
 
 -- Did the suggestions pay off? (design review: "did I reach my goal?")
 --
--- What the Overview and Characters tab suggest is noted by name when shown
--- (GoldsmithDB.suggested[name] = time). A craft of it within
--- SUGGESTED_WINDOW is marked lot.suggested (RecordCraftLot), and
--- GetFollowedSummary adds up those crafts and what they sold for.
+-- What the Overview and Characters tab suggest is noted when shown, with how
+-- many to make (GoldsmithDB.suggested[name] = { time, qty, used }). A craft
+-- of it within SUGGESTED_WINDOW, from Goldsmith or the game's window, is
+-- marked lot.suggested (RecordCraftLot) while fewer than qty have been
+-- counted: making more than suggested isn't following it (user,
+-- 2026-10-11; for a while only Goldsmith's Craft buttons counted, but a
+-- craft from the game's window drops out of the suggestions the same
+-- way). A suggestion shown again starts a new count only when it has
+-- really come back (Best crafts: once every one you made has sold), not
+-- when it's drawn in the moment after a craft, before the bags are read
+-- again (Characters.lua, 10 s): that started the count over, so a second
+-- batch of Enlightenment Tonic counted as followed after the first had
+-- filled the suggestion (user, 2026-10-11: "it should only show back up
+-- if they have sold"). So shown within STOCK_GRACE of a counted craft,
+-- the count carries on. A craft that starts within
+-- the count is counted whole (multicraft extras too). GetFollowedSummary
+-- adds up those crafts and what they sold for. Lots since 2026-10-11 also
+-- keep the price expected then (lot.expectedPrice), so the hover can say
+-- how the suggestions held up (user: "curious how well our recommendation
+-- logic is holding up").
 local SUGGESTED_WINDOW = 24 * 3600
 local SUGGESTED_KEEP = 8 * 86400
+-- How soon after a craft the suggestions can still show it, the bags not
+-- read again yet
+local STOCK_GRACE = 60
+-- An item "held up" when its sales made at least this share of the profit
+-- expected
+local HELD_UP_SHARE = 0.8
 
-function addon:MarkSuggested(names)
+-- items: { { name, qty (items suggested) } }; the same name twice (two
+-- tiers, or two characters) adds up
+function addon:MarkSuggested(items)
     GoldsmithDB.suggested = GoldsmithDB.suggested or {}
     local now = time()
-    for _, name in ipairs(names) do GoldsmithDB.suggested[name] = now end
-    for name, t in pairs(GoldsmithDB.suggested) do
-        if now - t > SUGGESTED_KEEP then GoldsmithDB.suggested[name] = nil end
+    local qty = {}
+    for _, item in ipairs(items) do
+        if item.name then qty[item.name] = (qty[item.name] or 0) + math.max(item.qty or 1, 1) end
+    end
+    for name, n in pairs(qty) do
+        local s = GoldsmithDB.suggested[name]
+        if type(s) == "table" and (s.used or 0) > 0 and now - s.time <= SUGGESTED_WINDOW
+            and now - (s.usedAt or 0) < STOCK_GRACE then
+            s.qty = math.max(s.qty or 0, n)
+        else
+            GoldsmithDB.suggested[name] = { time = now, qty = n, used = 0 }
+        end
+    end
+    for name, s in pairs(GoldsmithDB.suggested) do
+        -- Saved as a time before quantities were kept
+        if type(s) ~= "table" or now - s.time > SUGGESTED_KEEP then GoldsmithDB.suggested[name] = nil end
     end
 end
 
-function addon:WasSuggested(name)
-    local t = name and GoldsmithDB.suggested and GoldsmithDB.suggested[name]
-    return t ~= nil and time() - t <= SUGGESTED_WINDOW
+-- A craft of `name` making `qty` items: does it follow a suggestion? Counts
+-- it toward the suggested quantity if so.
+function addon:TakeSuggested(name, qty)
+    local s = name and GoldsmithDB.suggested and GoldsmithDB.suggested[name]
+    if type(s) ~= "table" or time() - s.time > SUGGESTED_WINDOW or s.used >= s.qty then return false end
+    s.used = s.used + (qty or 1)
+    s.usedAt = time()
+    return true
 end
 
 -- Crafts made after a suggestion in the last `days` days, and how they
--- sold: { crafted, sold, unsold, profit, items = { { name, made, sold,
--- profit } } (most profit first) }. A sale counts toward a followed craft
--- when it's of that item, after the craft, up to as many as were made;
--- its profit is the sale less its recorded cost (or the craft's).
+-- sold: { crafted, sold, unsold, profit, checked, heldUp, items = { { name,
+-- made, sold, profit, expected, heldUp, days } } (most profit first) }. A
+-- sale counts toward a followed craft when it's of that item, after the
+-- craft, up to as many as were made; its profit is the sale less its
+-- recorded cost (or the craft's). expected: what the ones sold were
+-- expected to make (price at craft time after the AH cut, less what the
+-- craft cost), when the lots kept that price. checked: items with sales
+-- and an expectation; heldUp: how many of them made HELD_UP_SHARE of it.
+-- days: since the item's first followed craft.
 function addon:GetFollowedSummary(days)
     local since = time() - (days or 7) * 86400
     local byName = {}
@@ -823,16 +875,20 @@ function addon:GetFollowedSummary(days)
             if lot.suggested and lot.time and lot.time >= since and lot.name and (lot.qty or 0) > 0 then
                 local s = byName[lot.name]
                 if not s then
-                    s = { name = lot.name, made = 0, cost = 0, first = lot.time }
+                    s = { name = lot.name, made = 0, cost = 0, first = lot.time, expQty = 0, expProfit = 0 }
                     byName[lot.name] = s
                 end
                 s.made = s.made + lot.qty
                 s.cost = s.cost + lot.qty * (lot.unitCost or 0)
                 s.first = math.min(s.first, lot.time)
+                if lot.expectedPrice then
+                    s.expQty = s.expQty + lot.qty
+                    s.expProfit = s.expProfit + lot.qty * (lot.expectedPrice * (1 - AH_CUT) - (lot.unitCost or 0))
+                end
             end
         end
     end
-    local result = { crafted = 0, sold = 0, unsold = 0, profit = 0, items = {} }
+    local result = { crafted = 0, sold = 0, unsold = 0, profit = 0, checked = 0, heldUp = 0, items = {} }
     local sales = addon.ledger:index().sales
     for name, s in pairs(byName) do
         s.sold, s.profit = 0, 0
@@ -845,6 +901,18 @@ function addon:GetFollowedSummary(days)
                 local cost = e.costBasis and e.costBasis * share or unitCost * take
                 s.profit = s.profit + e.totalCopper * share - cost
                 s.sold = s.sold + take
+            end
+        end
+        s.days = math.floor((time() - s.first) / 86400)
+        if s.expQty > 0 then
+            -- Expected each (from the lots that kept it), for the ones sold
+            s.expected = s.expProfit / s.expQty * s.sold
+            if s.sold > 0 then
+                result.checked = result.checked + 1
+                if s.profit >= (s.expected > 0 and s.expected * HELD_UP_SHARE or s.expected) then
+                    s.heldUp = true
+                    result.heldUp = result.heldUp + 1
+                end
             end
         end
         result.crafted = result.crafted + s.made
@@ -1068,7 +1136,8 @@ function addon:GetCraftRows(prof, opts)
         local recipe = GoldsmithDB.recipes[recipeID]
         if recipe and (prof == "All" or recipe.profession == prof)
             and (not opts.onlyMine or addon.char.knownRecipes[recipeID])
-            and addon:CanAuction(recipe.outputItemID) ~= false
+            -- Bound boxes once opened (worth what's inside, Gathered.lua)
+            and (addon:CanAuction(recipe.outputItemID) ~= false or addon:GetBoxValue(recipe.outputItemID) ~= nil)
             and not addon:IsSalvageRecipe(recipe)
             and (not opts.showExpansion or opts.showExpansion(addon:GetRecipeExpansion(recipe)))
             and (opts.showIgnored or not addon:IsIgnored(recipe.outputItemID))
@@ -1764,7 +1833,7 @@ History = function(filters)
                     kind = "Order", time = lot.time, item = lot.name, itemID = lot.itemID, qty = lot.qty,
                     cost = lot.unitCost, partial = lot.partial, profession = profession, lot = lot,
                     gold = commission,
-                    profit = commission and (commission + (lot.kept or 0) + (lot.rewardsValue or 0)
+                    profit = commission and (commission + (lot.kept or 0) + addon:LotRewardsValue(lot)
                         - (lot.unitCost or 0) * (lot.qty or 0)),
                 })
                 if commission then totals.goldIn = totals.goldIn + commission end
@@ -1779,16 +1848,27 @@ History = function(filters)
         if i % 64 == 0 then addon:Yield() end
         local character = e.character and e.realm and (e.character .. "-" .. e.realm)
         local profession = addon:GetProfessionForItemName(e.name) or "Unassigned"
-        if Keep("Gathered", e.time or 0, e.name, profession, character, e.itemID) then
-            local row = days[e.day]
+        -- What came out of a box you crafted: an "Opened" row a day per box,
+        -- with what the box cost (user, 2026-10-11: they weren't free)
+        local kind = e.box and "Opened" or "Gathered"
+        if Keep(kind, e.time or 0, e.name, profession, character, e.itemID) then
+            local key = e.box and (e.day .. "|" .. e.box) or e.day
+            local row = days[key]
             if not row then
-                row = { kind = "Gathered", time = 0, qty = 0, worth = 0, entries = {}, items = {} }
-                days[e.day] = row
+                row = { kind = kind, time = 0, qty = 0, worth = 0, entries = {}, items = {} }
+                if e.box then
+                    local boxName = C_Item.GetItemNameByID(e.box)
+                    local recipe = boxName and addon:FindRecipeByOutput(boxName)
+                    row.item, row.itemID, row.box = boxName or "A box you crafted", e.box, true
+                    row.boxProfession = recipe and recipe.profession
+                end
+                days[key] = row
                 table.insert(rows, row)
             end
             row.time = math.max(row.time, e.time or 0)
             row.qty = row.qty + e.qty
             row.worth = row.worth + (e.value or 0)
+            if e.cost then row.cost = (row.cost or 0) + e.cost end
             table.insert(row.entries, e)
             local item = row.items[e.itemID]
             if not item then
@@ -1797,6 +1877,7 @@ History = function(filters)
             end
             item.qty = item.qty + e.qty
             item.value = item.value + (e.value or 0)
+            if e.cost then item.cost = (item.cost or 0) + e.cost end
         end
     end
     for _, row in pairs(days) do
@@ -1807,8 +1888,12 @@ History = function(filters)
         end
         table.sort(list, function(a, b) return a.value > b.value end)
         row.items = list
+        if row.box then
+            -- Worth after the AH cut less what the box cost
+            if row.cost then row.profit = row.worth * (1 - AH_CUT) - row.cost end
+            if row.boxProfession then professions = { [row.boxProfession] = true } end
         -- One kind of material shows as itself; several as a count
-        if #list == 1 then
+        elseif #list == 1 then
             row.item, row.itemID = list[1].name, list[1].itemID
         else
             row.item = string.format("%d materials", #list)
