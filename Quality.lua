@@ -363,7 +363,8 @@ local function GetTierPrice(td, tier)
             sharedID = false
         end
     end
-    if not sharedID then
+    -- The tour's frozen prices have one per item, gear too (Tour.lua)
+    if not sharedID or addon:UsingTourData() then
         local price, source, age, note = addon:GetMarketPriceInfo(out.itemID)
         return price, source, age, out.itemID, note
     end

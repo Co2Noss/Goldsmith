@@ -41,9 +41,15 @@ local AH_CUT = 0.05
 -- Auctionator scan, so TSM is used, falling back to Auctionator.
 local sessionStart = time()
 
+-- During the tour the sample's prices are frozen (Tour.lua): Goldsmith
+-- Data's from when it was made, nothing from Auctionator, TSM or searches
+local function TourPrices()
+    return addon.UsingTourData ~= nil and addon:UsingTourData()
+end
+
 -- Auctionator's price for an item, regardless of TSM
 function addon:GetAuctionatorPrice(itemID)
-    if not itemID then return nil end
+    if not itemID or TourPrices() then return nil end
     local api = Auctionator and Auctionator.API and Auctionator.API.v1
     if not (api and api.GetAuctionPriceByItemID) then return nil end
     local ok, price = pcall(api.GetAuctionPriceByItemID, "Goldsmith", itemID)
@@ -59,6 +65,7 @@ function addon:ScannedThisSession()
 end
 
 local function GetAuctionatorAge(itemID)
+    if TourPrices() then return nil end
     local api = Auctionator and Auctionator.API and Auctionator.API.v1
     if not (api and api.GetAuctionAgeByItemID) then return nil end
     local ok, age = pcall(api.GetAuctionAgeByItemID, "Goldsmith", itemID)
@@ -68,7 +75,7 @@ local function GetAuctionatorAge(itemID)
 end
 
 local function GetTSMValue(source, itemID)
-    if not (TSM_API and TSM_API.GetCustomPriceValue) then return nil end
+    if not (TSM_API and TSM_API.GetCustomPriceValue) or TourPrices() then return nil end
     local ok, price = pcall(TSM_API.GetCustomPriceValue, source, "i:" .. itemID)
     if ok and price and price > 0 then
         return price
@@ -146,12 +153,12 @@ end
 -- The lowest price from a fresh search, before the check against the
 -- other prices (GetAHPriceInfo)
 function addon:GetSearchPrice(itemID)
-    local s = GoldsmithDB.searchPrices and GoldsmithDB.searchPrices[itemID]
+    local s = not TourPrices() and GoldsmithDB.searchPrices and GoldsmithDB.searchPrices[itemID]
     if s and time() - s.time <= ORDER_BOOK_FRESH then return s.price end
 end
 
 local function GetFreshOrderBook(itemID)
-    local book = GoldsmithDB.orderBooks and GoldsmithDB.orderBooks[itemID]
+    local book = not TourPrices() and GoldsmithDB.orderBooks and GoldsmithDB.orderBooks[itemID]
     if book and time() - book.time <= ORDER_BOOK_FRESH then
         return book
     end
@@ -610,7 +617,7 @@ end
 local OWN_SALES_DAYS = 14
 
 local function GetTSMSoldPerDay(itemID)
-    if not (TSM_API and TSM_API.GetCustomPriceValue) then return nil end
+    if not (TSM_API and TSM_API.GetCustomPriceValue) or TourPrices() then return nil end
     -- TSM returns whole numbers, so scale up to keep fractions like 0.4/day
     local ok, value = pcall(TSM_API.GetCustomPriceValue, "dbregionsoldperday*1000", "i:" .. itemID)
     if ok and value then
@@ -661,7 +668,7 @@ function addon:IsGear(itemID)
 end
 
 function addon:HasTSM()
-    return TSM_API and TSM_API.GetCustomPriceValue and true or false
+    return TSM_API and TSM_API.GetCustomPriceValue and not TourPrices() and true or false
 end
 
 -- Returns units sold per day and where it came from ("TSM region" or
@@ -688,7 +695,7 @@ end
 -- Share of an item's auctions that sell (0 to 1), from TSM's region data,
 -- or nil without TSM or data. A low rate means most listings expire.
 function addon:GetSaleRate(itemID)
-    if not (itemID and TSM_API and TSM_API.GetCustomPriceValue) then return nil end
+    if not (itemID and TSM_API and TSM_API.GetCustomPriceValue) or TourPrices() then return nil end
     -- TSM returns whole numbers, so scale up to keep the decimals
     local ok, value = pcall(TSM_API.GetCustomPriceValue, "dbregionsalerate*1000", "i:" .. itemID)
     if ok and value then

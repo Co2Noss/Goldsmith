@@ -161,8 +161,17 @@ local function UseSampleData(onReady)
             savedUI[key] = ui[key] == nil and false or ui[key]
             if value == false then ui[key] = nil else ui[key] = value end
         end
-        saved = { db = GoldsmithDB, char = addon.char, ledger = addon.ledger, entries = #db.entries }
+        saved = { db = GoldsmithDB, char = addon.char, ledger = addon.ledger, entries = #db.entries,
+            prices = GoldsmithPriceData }
         GoldsmithDB = db
+        -- The sample's own prices, frozen when it was made, so the tour looks
+        -- the same whatever the market does (user, 2026-10-13: the gold
+        -- Gloaming Alloy plan turned to a loss). Auctionator, TSM and AH
+        -- searches are left out meanwhile (Pricing.lua, UsingTourData).
+        if db.prices then
+            GoldsmithPriceData = { region = db.prices.region, updated = time() - (db.prices.age or 0),
+                items = db.prices.items }
+        end
         addon.char = db.characters[addon.charKey] or saved.char
         addon.ledger = addon:CreateLedger(db)
         Swapped()
@@ -192,6 +201,7 @@ local function UseOwnData()
     end
     savedUI = nil
     GoldsmithDB, addon.char, addon.ledger = own, saved.char, saved.ledger
+    GoldsmithPriceData = saved.prices
     saved = nil
     Swapped()
 end

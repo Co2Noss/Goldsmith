@@ -1,6 +1,6 @@
 -- Makes the tour's sample data (TourData.lua) from real saved data.
 --
---   lua Make-TourData.lua <real Goldsmith.lua> <output TourData.lua>
+--   lua Make-TourData.lua <real Goldsmith.lua> <output TourData.lua> <GoldsmithData Data_US.lua>
 --
 -- A new player's window is mostly empty, so the tour shows sample data
 -- instead (Tour.lua swaps it in while the tour runs). It's hand-picked
@@ -20,11 +20,15 @@
 --     shows at least once
 --   - a queue on both characters, one recipe not learned yet, a gold goal
 --     part way there
+--   - prices: Goldsmith Data's for every item in it, frozen (the tour uses
+--     only these, so it looks the same whatever the market does; user,
+--     2026-10-13); gear, which Goldsmith Data doesn't have, from its last
+--     price in the real price history. Check the plan's profit after making it.
 --   - no customer names, posts, AH searches, debug tables or errors
 -- Times stay as they were; Tour.lua moves them so the newest is now.
 -- Run with Lua 5.1 (WoW's version). The input file is only read.
 
-local input, output = arg[1], arg[2]
+local input, output, priceFile = arg[1], arg[2], arg[3]
 
 -- The choices
 local DAYS = 30
@@ -75,8 +79,8 @@ local EXCLUDED_ALT = { name = "Dustyboots", gold = 1800 * 10000 }
 local NAMES = { "Unholysaint", "Alexithymia", "Silkveil" }
 local EXPANSION = "Midnight"   -- skill lines start with it ("Midnight Inscription")
 
-if not input or not output then
-    print("Usage: lua Make-TourData.lua <real Goldsmith.lua> <output TourData.lua>")
+if not input or not output or not priceFile then
+    print("Usage: lua Make-TourData.lua <real Goldsmith.lua> <output TourData.lua> <GoldsmithData Data_US.lua>")
     os.exit(1)
 end
 dofile(input)
@@ -537,6 +541,49 @@ for id in pairs(itemIDs) do
         end
         if next(d) then db.priceHistory[id] = d end
     end
+end
+
+-- Prices, frozen: Goldsmith Data's entries for every item the sample
+-- uses, else (gear) the last price in the real price history
+do
+    GetCurrentRegion = function() return 1 end
+    GoldsmithPriceData = nil
+    dofile(priceFile)
+    local data = assert(GoldsmithPriceData, "No prices in " .. priceFile)
+    local ids = {}
+    for id in pairs(itemIDs) do ids[id] = true end
+    for _, r in pairs(db.recipes) do
+        if r.outputItemID then ids[r.outputItemID] = true end
+        for _, slot in ipairs(r.reagents or {}) do
+            for _, id in ipairs(slot.itemIDs or {}) do ids[id] = true end
+        end
+    end
+    for _, c in pairs(db.characters) do
+        for _, td in pairs(c.tierData or {}) do
+            for _, out in pairs(td.outputs or {}) do if out.itemID then ids[out.itemID] = true end end
+        end
+    end
+    local items, fromData, fromHistory = {}, 0, 0
+    for id in pairs(ids) do
+        if data.items[id] then
+            items[id] = Copy(data.items[id])
+            fromData = fromData + 1
+        else
+            local last
+            for day in pairs(real.priceHistory and real.priceHistory[id] or {}) do
+                if not last or day > last then last = day end
+            end
+            if last then
+                local p = real.priceHistory[id][last]
+                items[id] = { p, p, p }
+                fromHistory = fromHistory + 1
+            end
+        end
+    end
+    -- age: how long before the tour starts the prices read as fetched
+    db.prices = { region = data.region, age = 1800, items = items }
+    print(string.format("Prices: %d from Goldsmith Data (%s), %d from price history", fromData,
+        os.date("%Y-%m-%d %H:%M", data.updated), fromHistory))
 end
 
 -- Every kind of History entry at least once
