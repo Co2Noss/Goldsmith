@@ -46,10 +46,12 @@ local SHARED_KEYS = {
 }
 -- Window choices the tour starts from (ui2 is shared with the window, so
 -- the player's are saved and put back when it ends): everything shown,
--- History on All, 30 days. false = not set.
+-- History on All, 30 days, Crafts with concentration (the gold Gloaming
+-- Alloy the plan steps open is a concentration craft; user, 2026-10-13).
+-- false = not set.
 local TOUR_UI = {
     profession = "All", range = "30d", craftsShow = "all", craftsGear = false, craftsOnlyMine = false,
-    craftsConcentration = false, historyKind = false, historyCharacter = false,
+    craftsConcentration = true, historyKind = false, historyCharacter = false,
     itemsInBags = false, itemsCheap = false,
 }
 local savedUI -- the player's values of those, while the tour runs
@@ -158,7 +160,11 @@ local function UseSampleData(onReady)
         local ui = GoldsmithDB.ui2 or {}
         savedUI = {}
         for key, value in pairs(TOUR_UI) do
-            savedUI[key] = ui[key] == nil and false or ui[key]
+            -- false for not set ("x == nil and false or x" gave nil, so a
+            -- value the player never set stayed the tour's after it)
+            local own = ui[key]
+            if own == nil then own = false end
+            savedUI[key] = own
             if value == false then ui[key] = nil else ui[key] = value end
         end
         saved = { db = GoldsmithDB, char = addon.char, ledger = addon.ledger, entries = #db.entries,
@@ -381,7 +387,7 @@ local STEPS = {
           return view and view.show
       end },
     { tab = "crafts", title = "Concentration",
-      text = "Turn it on to see the better quality concentration reaches, and how much gold each point earns (g/conc).",
+      text = "On for the tour: crafts show the better quality concentration reaches, and how much gold each point earns (g/conc). Turn it off to see them without it.",
       target = function()
           local view = Screen("crafts")
           return view and view.concSwitch
@@ -610,6 +616,14 @@ function addon:TourStep(n)
         if open then
             wrongPick = open
             CloseScreens(step.tab)
+            C_Timer.After(0.3, function() if current == n then addon:TourStep(n) end end)
+            return
+        end
+        -- The pick is the concentration row: switched off, switch it back on
+        if step.screen == "plan" and GoldsmithDB.ui2.craftsConcentration ~= true then
+            GoldsmithDB.ui2.craftsConcentration = true
+            scrolled[n] = nil
+            addon.RefreshWindow()
             C_Timer.After(0.3, function() if current == n then addon:TourStep(n) end end)
             return
         end
