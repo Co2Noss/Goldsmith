@@ -261,8 +261,11 @@ local PICKS = {
         match = function(row) return row.item and row.item.name == ITEM_PICK end },
 }
 -- The row to click; for the craft, its best quality (gold: the one with
--- a mix of material qualities to show)
-local pickTier -- that row's tier, once found
+-- a mix of material qualities to show), with concentration (gold without
+-- it lost money; user, 2026-10-13)
+local pickTier, pickConc -- that row's tier and concentration, once found
+local pickTaken          -- the pick was opened: changing its concentration is fine
+local function Concentrates(row) return row.data.info and row.data.info.concentrate == true or false end
 local function PickedRow(which)
     local pick = PICKS[which]
     if not pick then return nil end
@@ -270,10 +273,13 @@ local function PickedRow(which)
     for _, row in ipairs(pick.rows()) do
         if row:IsShown() and pick.match(row) then
             if which ~= "plan" then return row end
-            if not best or (row.data.tier or 0) > (best.data.tier or 0) then best = row end
+            local tier, bestTier = row.data.tier or 0, best and best.data.tier or 0
+            if not best or tier > bestTier or (tier == bestTier and Concentrates(row) and not Concentrates(best)) then
+                best = row
+            end
         end
     end
-    if best then pickTier = best.data.tier end
+    if best then pickTier, pickConc = best.data.tier, Concentrates(best) end
     return best
 end
 local scrolled = {} -- steps that have scrolled to their pick once
@@ -285,9 +291,14 @@ local function OpenScreen(which)
     if which == "plan" then
         local view = Screen("crafts")
         local plan = view and view.plan:IsShown() and view.plan.plan
-        if not plan then return nil end
+        if not plan then pickTaken = nil return nil end
         local name = plan.recipe and plan.recipe.outputName
-        if noPick.plan or (name == CRAFT_PICK and (not pickTier or plan.tier == pickTier)) then return "pick" end
+        local tierOK = name == CRAFT_PICK and (not pickTier or plan.tier == pickTier)
+        local concOK = pickTaken or pickConc == nil or (plan.concentrate == true) == pickConc
+        if noPick.plan or (tierOK and concOK) then pickTaken = true return "pick" end
+        if tierOK then
+            return name .. (pickConc and " without concentration" or " with concentration")
+        end
         if name == CRAFT_PICK then return "a different quality of " .. name end
         return name or "another craft"
     elseif which == "page" then
@@ -658,6 +669,7 @@ function addon:StartTour()
     GoldsmithDB.tourOffered = true
     current = nil
     scrolled, noPick, pickTier, wrongPick = {}, {}, nil, nil
+    pickConc, pickTaken = nil, nil
     if addon.window and not addon.window:IsShown() then addon.window:Show() end
     UseSampleData(function()
         addon:ShowTab("overview")

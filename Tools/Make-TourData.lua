@@ -62,9 +62,13 @@ local QUEUED = {
     { "Sterling Alloy" }, { "Gloaming Alloy" },
     { "Thalassian Missive of the Fireflash", concentrate = true },
 }
--- In "@me"'s bags (itemID -> count): Umbral Tin Ore, for Gloaming Alloy's
--- plan to show a material you have
-local IN_STOCK = { [237362] = 12 }
+-- The plan the tour opens (Tour.lua's CRAFT_PICK): nobody holds its
+-- materials but IN_STOCK, so the plan shows each way to get one (real
+-- stock made Luminant Flux "From stock" instead of vendor; user, 2026-10-13)
+local PLAN = "Gloaming Alloy"
+-- In "@me"'s bags (itemID -> count): a few silver Umbral Tin Ore, so the
+-- plan has a material from stock and the rest of it bought
+local IN_STOCK = { [237362] = 2 }
 -- A character the player doesn't play, excluded in the sample's settings
 -- (Characters tab: "Exclude a character you don't play"): made from one the real account excludes
 local EXCLUDED_ALT = { name = "Dustyboots", gold = 1800 * 10000 }
@@ -276,6 +280,27 @@ for _, ch in ipairs(chars) do
         for id in pairs(c[field] or {}) do UseItem(id) end
     end
     db.characters[rename[ch.key]] = c
+end
+do
+    local materials, seen = {}, {}
+    local function Walk(recipeID)
+        local r = db.recipes[recipeID]
+        if not r or seen[recipeID] then return end
+        seen[recipeID] = true
+        for _, slot in ipairs(r.reagents or {}) do
+            for i, id in ipairs(slot.itemIDs or {}) do
+                materials[id] = true
+                if byOutput[slot.names[i]] then Walk(byOutput[slot.names[i]]) end
+            end
+        end
+    end
+    Walk(assert(byOutput[PLAN], "No recipe makes " .. PLAN))
+    for _, c in pairs(db.characters) do
+        for _, field in ipairs({ "stock", "stockBank" }) do
+            for id in pairs(materials) do if c[field] then c[field][id] = nil end end
+        end
+    end
+    for id in pairs(materials) do if db.warbandStock then db.warbandStock[id] = nil end end
 end
 for id, count in pairs(IN_STOCK) do
     local me = db.characters["@me-@realm"]
