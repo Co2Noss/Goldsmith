@@ -60,6 +60,7 @@ end
 
 -- The tier goes before the name, so a long name cut short never hides it
 local function ItemText(itemID, name, tier, tierCount)
+    if not tier and itemID then tier, tierCount = addon:GetItemTier(itemID) end -- a refine's one quality
     local icon = tier and tierCount and (addon:TierIconText(tier, tierCount) .. " ") or ""
     return icon .. (name or (itemID and addon:KnownItemName(itemID)) or "?")
 end

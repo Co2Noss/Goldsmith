@@ -67,6 +67,11 @@ local CONC_COLUMNS = {
 local TIER_ICON_LIST = 18
 local function ItemText(item, iconSize)
     local tier = item.tier and (addon:TierIconText(item.tier, item.info.tierCount, iconSize) .. " ") or ""
+    if not item.tier and not item.salvage then
+        -- A refine: the one quality it makes
+        local fixed, fixedCount = addon:FixedTier(item.recipe)
+        tier = fixed and (addon:TierIconText(fixed, fixedCount, iconSize) .. " ") or ""
+    end
     return addon:ProfessionIconText(item.recipe.profession) .. tier .. item.recipe.outputName
 end
 
@@ -551,6 +556,11 @@ local function FillPlanRow(row, node)
     local cells = row.cells
     local indent = string.rep("    ", node.depth - 1) .. (node.depth > 1 and "> " or "")
     local quality = node.qualityTier and (addon:TierIconText(node.qualityTier, node.tierCount or 2) .. " ") or ""
+    if not node.qualityTier then
+        -- One quality only, as a refine's material: from what's known of it
+        local tier, tierCount = addon:GetItemTier(node.itemID)
+        quality = tier and (addon:TierIconText(tier, tierCount) .. " ") or ""
+    end
     -- Crafted on someone else (a Jewelcrafting vial in an Alchemy plan), and
     -- what its concentration earns: on the row, not only in the hover (user,
     -- 2026-10-10)
@@ -1994,6 +2004,11 @@ local function CreatePlanScreen(parent)
             tierInfo and tierInfo.concentrate == true or false)
         screen.queue:SetLabel(screen.queued and "Update queue" or "Add to queue")
         local tierIcon = tierInfo and (addon:TierIconText(tierInfo.tier, tierInfo.tierCount) .. " ") or ""
+        if not tierInfo then
+            -- A refine: the one quality it makes
+            local tier, tierCount = addon:FixedTier(recipe)
+            tierIcon = tier and (addon:TierIconText(tier, tierCount) .. " ") or ""
+        end
         screen.title:SetText(addon:ProfessionIconText(recipe.profession) .. tierIcon .. recipe.outputName)
         -- The checkbox shows the way actually planned (a tier may need
         -- concentration, or not benefit from it)

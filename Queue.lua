@@ -389,6 +389,11 @@ function addon:QueueRowName(row)
     local name = row.recipe and row.recipe.outputName
         or (row.entry.recipeID and ("recipe " .. row.entry.recipeID)) or "?"
     local icon = row.tierInfo and (addon:TierIconText(row.tierInfo.tier, row.tierInfo.tierCount) .. " ") or ""
+    if not row.tierInfo and row.recipe and row.recipe.recipeID then
+        -- A refine: the one quality it makes
+        local tier, tierCount = addon:FixedTier(row.recipe)
+        icon = tier and (addon:TierIconText(tier, tierCount) .. " ") or ""
+    end
     return icon .. name
 end
 

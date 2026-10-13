@@ -1428,6 +1428,26 @@ local function BuildItemIndex()
             end
         end
     end
+    -- Refines make one quality of an item from a lower one (Refine
+    -- Duskshrouded Stone: 18 silver stones make 1 gold). Their slots have a
+    -- single item, so when no other recipe lists both qualities, the tier
+    -- comes from the quality icon in the recipe's name; the material is the
+    -- quality below (only sure with 2 tiers). Without icons it read "18
+    -- Dusk-Shrouded Stone make a Dusk-Shrouded Stone" (user, 2026-10-13).
+    for n, recipeID in ipairs(addon:Keys(GoldsmithDB.recipes)) do
+        if n % 64 == 0 then addon:Yield() end
+        local recipe = GoldsmithDB.recipes[recipeID]
+        local tier, tierCount = addon:NameTier(recipe.name)
+        if tier and recipe.outputItemID then
+            Add(recipe.outputItemID, recipe.outputName, { tier = tier, tierCount = tierCount })
+            for _, slot in ipairs(recipe.reagents or {}) do
+                local ids = slot.itemIDs or {}
+                if #ids == 1 and slot.names[1] == recipe.outputName and tier == 2 and tierCount == 2 then
+                    Add(ids[1], slot.names[1], { tier = 1, tierCount = 2 })
+                end
+            end
+        end
+    end
     for herbID, record in pairs(GoldsmithDB.milling) do
         Add(herbID, record.name, { material = true, profession = GoldsmithDB.reagents[record.name] })
     end
@@ -1456,6 +1476,29 @@ end
 function addon:GetItemTier(itemID)
     local item = itemID and ItemIndex()[itemID]
     if item then return item.tier, item.tierCount end
+end
+
+-- The quality icon in a recipe's name (refines: "Refine Duskshrouded Stone
+-- |A:Professions-ChatIcon-Quality-12-Tier2:20:20|a"): tier, tierCount or nil.
+-- "Quality-12" icons are Midnight's 2 tiers, the others The War Within's 3.
+function addon:NameTier(name)
+    if not name then return nil end
+    local tier = name:match("Quality%-12%-Tier(%d)")
+    if tier then return tonumber(tier), 2 end
+    tier = name:match("Quality%-Tier(%d)")
+    if tier then return tonumber(tier), 3 end
+end
+
+-- A recipe that makes one quality only (a refine): its output's tier and
+-- tierCount, or nil. Crafts with a choice of quality have tier rows instead
+-- (and no icon in their name, so one whose tiers haven't loaded gets none).
+function addon:FixedTier(recipe)
+    if not (recipe and recipe.outputItemID) then return nil end
+    local nameTier, nameCount = addon:NameTier(recipe.name)
+    if not nameTier then return nil end
+    local tier, tierCount = addon:GetItemTier(recipe.outputItemID)
+    if tier then return tier, tierCount end
+    return nameTier, nameCount
 end
 
 -- What you've sold of each item name: { [name] = { name, profession,
