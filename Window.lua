@@ -529,6 +529,7 @@ function addon:CreateWindow()
         settings = settingsButton,
         legend = legend,
         tabs = tabBar.buttons,
+        close = closeButton,
     }
     local function GetScreen(key)
         if created[key] then return created[key] end

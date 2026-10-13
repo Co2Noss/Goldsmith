@@ -51,7 +51,7 @@ local SHARED_KEYS = {
 -- false = not set.
 local TOUR_UI = {
     profession = "All", range = "30d", craftsShow = "all", craftsGear = false, craftsOnlyMine = false,
-    craftsConcentration = true, historyKind = false, historyCharacter = false,
+    craftsConcentration = true, historyKind = false, historyCharacter = false, planMixOpen = true,
     itemsInBags = false, itemsCheap = false,
 }
 local savedUI -- the player's values of those, while the tour runs
@@ -426,7 +426,7 @@ local STEPS = {
           local view = Screen("crafts")
           return view and view.list
       end,
-      text = "The mix of material qualities: Goldsmith picks the cheapest one that reaches this quality. Click the bar to compare the top three and pick another; click it again to hide them.",
+      text = "The mix of material qualities: Goldsmith picks the best one for this quality, and lists the top three to compare. After the tour, click one to use it instead, or click the bar to hide them.",
       target = function()
           local view = Screen("crafts")
           local mixes = view and view.plan.mixes
@@ -573,6 +573,97 @@ local function Show(first, last)
     C_Timer.After(0, function() if box:IsShown() then FitBox() end end)
 end
 
+-- The tour is on rails (user, 2026-10-13: clicking around, e.g. a Do this
+-- next craft, took the steps off course; look around after the tour). A
+-- shield over the window takes clicks and the mouse wheel everywhere but
+-- the hole: the one thing a step asks to click, or nothing. The tour box
+-- sits above it, and a stand-in for the window's X still closes it (one
+-- of the ways to end the tour).
+local shields, closer, holeFn, keeper
+
+-- A frame's edges in UIParent's coordinates
+local function Edges(frame)
+    local left, bottom, width, height = frame:GetRect()
+    if not left then return nil end
+    local s = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    return left * s, bottom * s, (left + width) * s, (bottom + height) * s
+end
+
+local function Place(frame, left, bottom, right, top)
+    frame:ClearAllPoints()
+    if right - left < 1 or top - bottom < 1 then frame:Hide() return end
+    frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
+    frame:SetSize(right - left, top - bottom)
+    frame:Show()
+end
+
+local function UpdateShield()
+    if not (shields and addon.window and addon.window:IsShown()) then return end
+    local wl, wb, wr, wt = Edges(addon.window)
+    if not wl then return end
+    local hole = holeFn and holeFn()
+    local hl, hb, hr, ht
+    if hole and hole:IsVisible() then hl, hb, hr, ht = Edges(hole) end
+    if not hl then
+        -- No hole: one shield over it all
+        Place(shields[1], wl, wb, wr, wt)
+        for i = 2, 4 do shields[i]:Hide() end
+    else
+        hl, hr = math.max(hl, wl), math.min(hr, wr)
+        hb, ht = math.max(hb, wb), math.min(ht, wt)
+        Place(shields[1], wl, ht, wr, wt) -- above
+        Place(shields[2], wl, wb, wr, hb) -- below
+        Place(shields[3], wl, hb, hl, ht) -- left
+        Place(shields[4], hr, hb, wr, ht) -- right
+    end
+    local x = Part("close")
+    local cl, cb, cr, ct = x and Edges(x)
+    if cl then Place(closer, cl, cb, cr, ct) else closer:Hide() end
+end
+
+local function CreateShield()
+    shields = {}
+    for i = 1, 4 do
+        local f = CreateFrame("Frame", nil, UIParent)
+        f:SetFrameStrata("FULLSCREEN_DIALOG")
+        f:SetFrameLevel(highlight:GetFrameLevel())
+        f:EnableMouse(true)
+        f:EnableMouseWheel(true)
+        f:SetScript("OnMouseWheel", function() end)
+        f:Hide()
+        shields[i] = f
+    end
+    closer = CreateFrame("Button", nil, UIParent)
+    closer:SetFrameStrata("FULLSCREEN_DIALOG")
+    closer:SetFrameLevel(highlight:GetFrameLevel() + 2)
+    closer:SetScript("OnClick", function() if addon.window then addon.window:Hide() end end)
+    closer:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+        GameTooltip:AddLine("Close (ends the tour)", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    closer:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    closer:Hide()
+end
+
+-- Lets clicks through only at holeFn() (nil: nowhere). Kept in place
+-- while the tour runs: rows move as lists refresh.
+local function SetHole(fn)
+    if not shields then CreateShield() end
+    holeFn = fn
+    UpdateShield()
+    if not keeper then keeper = C_Timer.NewTicker(0.2, UpdateShield) end
+end
+
+local function DropShield()
+    if keeper then keeper:Cancel() end
+    keeper, holeFn = nil, nil
+    if shields then
+        for _, f in ipairs(shields) do f:Hide() end
+        closer:Hide()
+    end
+end
+
 -- Shows step n. On another tab: point at that tab and wait for the click
 -- (addon.OnTourTab), unless going back, which switches tabs itself.
 function addon:TourStep(n)
@@ -585,12 +676,13 @@ function addon:TourStep(n)
     if not addon.window:IsShown() then addon.window:Show() end
 
     box.count:SetText(string.format("%d / %d", n, #STEPS))
-    box.note:SetText("Showing sample characters and sales. Yours come back when the tour ends.")
+    box.note:SetText("Showing sample characters and sales. Yours come back, and the window is yours to click around, when the tour ends.")
     box.note:SetShown(saved ~= nil)
     box.back:SetShown(n > 1)
     box.next:SetLabel(n == #STEPS and "Done" or "Next")
 
     StopWatching()
+    SetHole(nil) -- nothing to click until the step says what
     local onTab = not step.tab or addon:CurrentTab() == step.tab
     waiting = not onTab and step.tab or nil
     if waiting and goingBackward then
@@ -607,6 +699,7 @@ function addon:TourStep(n)
         box.next:Hide()
         local tabButton = Part("tabs")[step.tab]
         Show(tabButton)
+        SetHole(function() return Part("tabs")[step.tab] end)
         return
     end
     if step.screen and not ScreenOpen(step.screen) then
@@ -647,6 +740,7 @@ function addon:TourStep(n)
         box.ask:Show()
         box.next:Hide()
         Show(row or step.clickTarget())
+        SetHole(function() return PickedRow(step.screen) or step.clickTarget() end)
         -- Carries on once that screen is open and laid out
         watcher = C_Timer.NewTicker(0.2, function()
             if current == n and OpenScreen(step.screen) then
@@ -704,6 +798,7 @@ end
 function addon:EndTour()
     current, waiting = nil, nil
     StopWatching()
+    DropShield()
     UseOwnData()
     if box then box:Hide() end
     if highlight then
