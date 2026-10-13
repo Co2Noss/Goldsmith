@@ -39,10 +39,12 @@ local TIME_KEYS = {
 }
 -- The player's own, kept while the sample shows. Settings aren't: the
 -- sample gets a copy of them with its own excluded characters (its bank
--- alt), dropped with the sample.
+-- alt), dropped with the sample. errorLog: errors during the tour belong
+-- in the player's bug report (one went to the sample's and was lost; user,
+-- 2026-10-13).
 local SHARED_KEYS = {
     "ui", "ui2", "professionIcons", "tourOffered", "auctionatorTipShown",
-    "lastPriceUpdate", "lastFullScan",
+    "lastPriceUpdate", "lastFullScan", "errorLog",
 }
 -- Window choices the tour starts from (ui2 is shared with the window, so
 -- the player's are saved and put back when it ends): everything shown,
@@ -617,7 +619,8 @@ local function UpdateShield()
         Place(shields[4], hr, hb, wr, ht) -- right
     end
     local x = Part("close")
-    local cl, cb, cr, ct = x and Edges(x)
+    local cl, cb, cr, ct
+    if x then cl, cb, cr, ct = Edges(x) end -- not "x and Edges(x)": that keeps only the first
     if cl then Place(closer, cl, cb, cr, ct) else closer:Hide() end
 end
 
