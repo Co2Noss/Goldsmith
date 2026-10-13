@@ -1497,6 +1497,11 @@ local function CreatePlanScreen(parent)
     screen.useConc = UI.Checkbox(screen, "Use concentration", function(checked)
         local p = screen.plan
         if not p then return end
+        -- The tour's steps show the plan with concentration (user, 2026-10-13)
+        if addon:UsingTourData() and not checked then
+            addon:Notify("info", "Concentration stays on during the tour.")
+            return
+        end
         p.concentrate = checked
         p.scenario = nil -- the chosen mix belongs to the other way
         screen:Update()
@@ -2925,6 +2930,11 @@ local function Create(parent)
     view.focusChip:SetPoint("TOPLEFT", 0, 0)
 
     view.concSwitch = UI.Switch(list, "Concentration", function(on)
+        -- The tour's steps show crafts with concentration (user, 2026-10-13)
+        if addon:UsingTourData() and not on then
+            addon:Notify("info", "Concentration stays on during the tour.")
+            return
+        end
         ui.craftsConcentration = on or nil
         addon.RefreshWindow()
     end)

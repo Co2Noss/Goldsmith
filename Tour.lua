@@ -387,7 +387,7 @@ local STEPS = {
           return view and view.show
       end },
     { tab = "crafts", title = "Concentration",
-      text = "On for the tour: crafts show the better quality concentration reaches, and how much gold each point earns (g/conc). Turn it off to see them without it.",
+      text = "On for the tour: crafts show the better quality concentration reaches, and how much gold each point earns (g/conc). After the tour, turn it off to see crafts without it.",
       target = function()
           local view = Screen("crafts")
           return view and view.concSwitch
