@@ -117,11 +117,17 @@ end
 -- each item's lowest price, so searching updates prices without
 -- Auctionator (user, 2026-10-09: Goldsmith Data was 1,250g, the AH 866g).
 -- Kept as GoldsmithDB.searchPrices[itemID] = { time, price, quantity }
--- and used for ORDER_BOOK_FRESH like an order book. Materials only from
--- SEARCH_MIN_PRICE on: for cheap bulk materials one cheap listing is often
--- a one-unit undercut, and clicking in gives the depth. Crafted items at
--- any price (a 5g ring scroll was left out at first).
-local SEARCH_MIN_PRICE = 25 * 10000 -- 25g
+-- and used for ORDER_BOOK_FRESH like an order book.
+-- A search shows only the cheapest listing, not how many are at that
+-- price, so a lone undercut can't be told apart: a search price more than
+-- SEARCH_MAX_DROP below the price Goldsmith has otherwise (Goldsmith Data,
+-- Auctionator, TSM) isn't used (GetAHPriceInfo); clicking into the item
+-- gives the real depth. It replaced a 25g floor for materials (2026-10-13,
+-- user: searching Null and Void Plate's materials didn't update them):
+-- across the US AH, the cheapest listing was over 10% below the price with
+-- quantity behind it for 10% of items under 25g and 18% of those over, so
+-- the floor kept the safer half out and let the riskier half in.
+local SEARCH_MAX_DROP = 0.10
 
 local function RecordSearchResults(results)
     GoldsmithDB.searchPrices = GoldsmithDB.searchPrices or {}
@@ -137,14 +143,11 @@ local function RecordSearchResults(results)
     return recorded
 end
 
+-- The lowest price from a fresh search, before the check against the
+-- other prices (GetAHPriceInfo)
 function addon:GetSearchPrice(itemID)
     local s = GoldsmithDB.searchPrices and GoldsmithDB.searchPrices[itemID]
-    if not (s and time() - s.time <= ORDER_BOOK_FRESH) then return nil end
-    local name = C_Item.GetItemNameByID(itemID)
-    local material = name and GoldsmithDB.reagents[name] and not addon:FindRecipeByOutput(name)
-    if s.price >= SEARCH_MIN_PRICE or not material then
-        return s.price
-    end
+    if s and time() - s.time <= ORDER_BOOK_FRESH then return s.price end
 end
 
 local function GetFreshOrderBook(itemID)
@@ -363,6 +366,8 @@ end
 --   "Blizzard"     - Blizzard AH data, when neither addon has a price or
 --                    Auctionator's is older
 -- nil if nothing has a price.
+local StoredAHPrice -- below
+
 function addon:GetAHPriceInfo(itemID)
     if not itemID then return nil end
 
@@ -375,11 +380,19 @@ function addon:GetAHPriceInfo(itemID)
     if book then
         return GetRobustBookPrice(book), "Live", nil
     end
+    local price, source, age, note = StoredAHPrice(itemID, preferred)
+    -- A search price, unless it's far below the others: likely a lone
+    -- undercut (see SEARCH_MAX_DROP)
     local searched = preferred ~= "tsm" and addon:GetSearchPrice(itemID)
-    if searched then
+    if searched and (not price or searched >= price * (1 - SEARCH_MAX_DROP)) then
         return searched, "Search", nil
     end
+    return price, source, age, note
+end
 
+-- The AH price from saved data (Auctionator, TSM, Goldsmith Data), as
+-- GetAHPriceInfo returns it, without live or searched prices
+StoredAHPrice = function(itemID, preferred)
     local auctionator = addon:GetAuctionatorPrice(itemID)
     local age = auctionator and GetAuctionatorAge(itemID)
     local price, source
@@ -1541,6 +1554,13 @@ local CRAFT_LOT_LIMIT = 30
 local ORDER_CRAFT_LIMIT = 100
 -- Bumped whenever craftLots changes (see GetCraftLotsByName)
 local craftLotsVersion = 0
+
+-- GoldsmithDB was swapped for another (the tour's sample data, Tour.lua):
+-- indexes built from the old one are rebuilt
+function addon:RecipesSwapped()
+    addon.recipesVersion = addon.recipesVersion + 1
+    craftLotsVersion = craftLotsVersion + 1
+end
 
 -- Crafts for crafting orders go to GoldsmithDB.orderCrafts instead
 -- ({ time, qty, unitCost (your materials only), partial, name, itemID,

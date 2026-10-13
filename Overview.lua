@@ -1166,8 +1166,8 @@ local function Refresh(view, state)
     if not CHARTS[index] then index = 1 end
     local chart = CHARTS[index]
     local points, subtitle, kind, empty = ChartData(chart.key, state)
-    -- With a goal, the gold chart is about the goal (user, 2026-10-11)
-    view.chartTitle:SetText(chart.key == "gold" and Goal() and "Gold goal" or chart.title)
+    -- Always "Total gold": "Gold goal" is the bar beside it (user, 2026-10-13)
+    view.chartTitle:SetText(chart.title)
     view.chartSubtitle:SetText(subtitle or "")
     view.chartPage:SetFormattedText("%d / %d", index, #CHARTS)
     view.barChart:SetShown(kind == "bar" and not empty)

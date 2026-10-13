@@ -163,6 +163,8 @@ local function GetWarbandGold()
 end
 
 local function RecordGold()
+    -- Not while the tour shows its sample data (Tour.lua): it isn't yours
+    if addon:UsingTourData() then return end
     local c = addon.char
     local money = GetMoney()
     local today = date("%Y-%m-%d")
@@ -267,6 +269,8 @@ end
 -- A warband bank that suddenly reads empty is more likely not loaded yet
 -- than really empty, so the last count is kept in that case.
 local function SnapshotStock()
+    -- Not while the tour shows its sample data (Tour.lua): it isn't yours
+    if addon:UsingTourData() then return end
     local c = addon.char
     local stock, warband, warbandTotal = {}, {}, 0
     -- How many of each are in the bank, for "where is it" in hovers (the
@@ -510,6 +514,8 @@ end
 -- loggingOut: the game reports 0 gold while logging out or reloading, so
 -- gold isn't saved then (PLAYER_MONEY and login keep it up to date)
 local function UpdateAll(loggingOut)
+    -- Not while the tour shows its sample data (Tour.lua): it isn't yours
+    if addon:UsingTourData() then return end
     local c = addon.char
     c.lastSeen = time()
     c.class = select(2, UnitClass("player"))

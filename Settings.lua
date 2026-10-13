@@ -409,11 +409,13 @@ function addon:FollowedLabel(parent)
         tooltip:AddDoubleLine("Not sold yet", tostring(f.unsold), 0.8, 0.8, 0.8, 1, 1, 1)
         local r, g, b = addon:Color(addon:MoneyColor(f.profit))
         tooltip:AddDoubleLine("Profit on what sold", Signed(f.profit), 0.8, 0.8, 0.8, r, g, b)
-        -- How the suggestions paid off: what sold against what was expected
-        -- when it was crafted (user, 2026-10-11; "held up" read as funds held up, so "paid off")
+        -- How the suggestions did: what sold against what was expected when
+        -- it was crafted (user, 2026-10-11). "On target" (2026-10-13, was
+        -- "paid off") also reads right for a craft expected to lose a little
+        -- that lost less or made a little
         if f.checked > 0 then
             local hr, hg, hb = addon:Color(f.heldUp == f.checked and "profit" or "text")
-            tooltip:AddDoubleLine("Paid off", string.format("%d of %d items", f.heldUp, f.checked),
+            tooltip:AddDoubleLine("On target", string.format("%d of %d items", f.heldUp, f.checked),
                 0.8, 0.8, 0.8, hr, hg, hb)
         end
         tooltip:AddLine(" ")
@@ -425,7 +427,7 @@ function addon:FollowedLabel(parent)
                 0.9, 0.9, 0.9, ir, ig, ib)
             if s.expected and s.sold > 0 then
                 local er, eg, eb = addon:Color(s.heldUp and "profit" or "warning")
-                tooltip:AddDoubleLine("    expected " .. Signed(s.expected), s.heldUp and "paid off" or "fell short",
+                tooltip:AddDoubleLine("    expected " .. Signed(s.expected), s.heldUp and "on target" or "fell short",
                     0.6, 0.6, 0.6, er, eg, eb)
             end
             if s.sold < s.made and s.days >= 1 then
@@ -435,7 +437,7 @@ function addon:FollowedLabel(parent)
         end
         -- One label to a line, easier to read (user, 2026-10-11)
         addon:Explain(tooltip, "Expected: the AH price when you crafted it, after the AH cut, minus the craft cost.")
-        addon:Explain(tooltip, "Paid off: its sales made at least 80% of the expected profit, so the suggestion was right.")
+        addon:Explain(tooltip, "On target: its sales made at least 80% of the expected profit (or, when a loss was expected, lost no more than that).")
         addon:Explain(tooltip, "Fell short: its sales made less than that.")
         addon:Explain(tooltip, "Counted for crafts from Oct 11, 2026 on.")
     end, "ANCHOR_BOTTOM")

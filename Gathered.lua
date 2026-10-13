@@ -548,6 +548,15 @@ function addon:RestoreGathered(removed)
     if addon.Refresh then addon.Refresh() end
 end
 
+-- GoldsmithDB was swapped for another (the tour's sample data, Tour.lua)
+function addon:GatheredSwapped()
+    GoldsmithDB.gathered = GoldsmithDB.gathered or {}
+    GoldsmithDB.gatheredLog = GoldsmithDB.gatheredLog or {}
+    recent = GoldsmithDB.gatheredLog
+    BuildLookup()
+    version = version + 1
+end
+
 function addon:InitializeGathered()
     GoldsmithDB.gathered = GoldsmithDB.gathered or {}
     GoldsmithDB.gatheredLog = GoldsmithDB.gatheredLog or {}

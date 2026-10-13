@@ -527,6 +527,7 @@ function addon:CreateWindow()
         filters = { professionButton, expansionButton },
         price = priceText,
         settings = settingsButton,
+        legend = legend,
         tabs = tabBar.buttons,
     }
     local function GetScreen(key)

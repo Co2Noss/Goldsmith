@@ -27,6 +27,10 @@ local MIN_SALVAGE_CASTS = 10
 local SALVAGE_MARGIN = 0.10
 
 local function GetOnHand(itemID)
+    -- The tour's sample (Tour.lua): what its "you" holds, not your bags
+    if addon:UsingTourData() then
+        return addon.char.stock and addon.char.stock[itemID] or 0
+    end
     return C_Item.GetItemCount(itemID, true, false, true, true) or 0
 end
 
