@@ -843,7 +843,7 @@ function addon:CreateSettingsPanel(parent)
     supportButton:SetPoint("RIGHT", helpButton, "LEFT", -8, 0)
     UI.SetTooltip(supportButton, function(tooltip)
         tooltip:AddLine("Support and feedback", 1, 1, 1)
-        tooltip:AddLine("Report a bug or suggest an idea on GitHub.", 0.8, 0.8, 0.8, true)
+        tooltip:AddLine("Report a bug or suggest an idea on Goldsmith's CurseForge page.", 0.8, 0.8, 0.8, true)
         local errors = #addon:GetErrors()
         if errors > 0 then
             tooltip:AddLine(string.format("Goldsmith has saved %d error%s. Copy bug report there includes them.",
@@ -1024,8 +1024,9 @@ end
 
 -- Support and feedback
 --
--- Where to report bugs and ideas: GitHub issues. Addons can't open a web
--- page, so the link is in a box to copy. No donation link here: Blizzard's
+-- Where to report bugs and ideas: CurseForge comments first (players have
+-- an account from the app), GitHub issues for those who use it. Addons
+-- can't open a web page, so the links are in boxes to copy. No donation link here: Blizzard's
 -- add-on policy doesn't allow asking for donations in game, so that lives
 -- on the CurseForge page (2026-10-06).
 
@@ -1084,13 +1085,19 @@ function addon:CreateSupportPanel(parent, settings)
     intro:SetWidth(SUPPORT_WIDTH - 32)
     intro:SetWordWrap(true)
     intro:SetSpacing(2)
-    intro:SetText("Found a bug or have an idea? Open an issue on GitHub. Click the link, press Ctrl+C to copy it, and paste it into your browser.")
+    intro:SetText("Found a bug or have an idea? Leave a comment on Goldsmith's CurseForge page. Click the link, press Ctrl+C to copy it, and paste it into your browser.")
 
-    local link = CopyBox(panel, SUPPORT_WIDTH - 32, addon.ISSUES_URL)
+    local link = CopyBox(panel, SUPPORT_WIDTH - 32, addon.COMMENTS_URL)
     link:SetPoint("TOPLEFT", intro, "BOTTOMLEFT", 0, -10)
 
+    local githubText = UI.Text(panel, "small", "muted")
+    githubText:SetPoint("TOPLEFT", link, "BOTTOMLEFT", 0, -10)
+    githubText:SetText("Use GitHub? Issues work too:")
+    local github = CopyBox(panel, SUPPORT_WIDTH - 32, addon.ISSUES_URL)
+    github:SetPoint("TOPLEFT", githubText, "BOTTOMLEFT", 0, -6)
+
     local heading = UI.Text(panel, "body", "text")
-    heading:SetPoint("TOPLEFT", link, "BOTTOMLEFT", 0, -16)
+    heading:SetPoint("TOPLEFT", github, "BOTTOMLEFT", 0, -16)
     heading:SetText("For a bug, it helps to include")
     local details = UI.Text(panel, "small", "muted")
     details:SetPoint("TOPLEFT", heading, "BOTTOMLEFT", 0, -4)
@@ -1115,12 +1122,14 @@ function addon:CreateSupportPanel(parent, settings)
     errorsText:SetPoint("LEFT", reportButton, "RIGHT", 10, 0)
 
     -- Tall enough for the text, however it wrapped: the title, the intro,
-    -- the link, the heading and details with the gaps between, the button
+    -- the two links with the GitHub line, the heading and details with the
+    -- gaps between, the button
     panel:SetScript("OnShow", function()
         details:SetText("What you did and what happened. Copy bug report adds your versions, settings and any saved errors.")
         local errors = #addon:GetErrors()
         errorsText:SetText(errors > 0 and string.format("%d error%s saved", errors, errors == 1 and "" or "s") or "")
-        panel:SetHeight(50 + intro:GetStringHeight() + 10 + 26 + 16 + heading:GetStringHeight() + 4
+        panel:SetHeight(50 + intro:GetStringHeight() + 10 + 26 + 10 + githubText:GetStringHeight() + 6 + 26
+            + 16 + heading:GetStringHeight() + 4
             + details:GetStringHeight() + 52)
     end)
     return panel

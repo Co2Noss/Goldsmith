@@ -14,15 +14,19 @@ local UI = addon.UI
 --   - The report (Settings > Support and feedback > Copy bug report, or
 --     /gsm report) gathers versions, other addons, price data, the window's
 --     filters, changed settings, how much data there is and the errors,
---     ready to paste into a GitHub issue. GitHub issues are public, so
---     character and realm names are replaced and no gold amounts or items
---     are included.
+--     ready to paste into a CurseForge comment or a GitHub issue. Both are
+--     public, so character and realm names are replaced and no gold
+--     amounts or items are included.
 -- Addons can't open a browser, so the player copies it with Ctrl+C.
+-- CurseForge comments come first: players have a CurseForge account from
+-- the app, few have GitHub (user, 2026-10-14).
 
 local MAX_ERRORS = 10
 local STACK_LINES = 12
+local COMMENTS_URL = "https://www.curseforge.com/wow/addons/goldsmith-crafting-profit-planner/comments"
 local ISSUES_URL = "https://github.com/sunseteffect/Goldsmith/issues"
 
+addon.COMMENTS_URL = COMMENTS_URL
 addon.ISSUES_URL = ISSUES_URL
 
 -- Version from the TOC, or "development copy" when it isn't set
@@ -299,7 +303,7 @@ function addon:CreateReportPanel(parent, support)
     intro:SetWidth(REPORT_WIDTH - 32)
     intro:SetWordWrap(true)
     intro:SetSpacing(2)
-    intro:SetText("It's selected: press Ctrl+C to copy it, then paste it into your GitHub issue under what happened. Character and realm names are left out, and nothing about your gold or items is included.")
+    intro:SetText("It's selected: press Ctrl+C to copy it, then paste it into your comment (or GitHub issue) under what happened. Character and realm names are left out, and nothing about your gold or items is included.")
 
     -- The box, scrolling inside a border
     local border = CreateFrame("Frame", nil, panel, "BackdropTemplate")

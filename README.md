@@ -45,7 +45,7 @@ You can also set keys for opening Goldsmith and for Craft next in the game's Key
 - Posting your crafts on the AH is up to you (TSM or Auctionator do that well).
 
 ## Support and feedback
-- Found a bug or have an idea? [Open an issue on GitHub](https://github.com/sunseteffect/Goldsmith/issues). In game, Settings > Support and feedback has the link and a Copy bug report button that gathers the details for you.
+- Found a bug or have an idea? [Leave a comment on CurseForge](https://www.curseforge.com/wow/addons/goldsmith-crafting-profit-planner/comments), or [open an issue on GitHub](https://github.com/sunseteffect/Goldsmith/issues) if you use it. In game, Settings > Support and feedback has both links and a Copy bug report button that gathers the details for you.
 - Goldsmith is free. If it makes you gold and you'd like to say thanks, you can [buy me a coffee on Ko-fi](https://ko-fi.com/sunseteffect).
 
 ## License

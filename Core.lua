@@ -524,7 +524,7 @@ local function PrintHelp()
     print("  /gsm gathered - what was counted as gathered today, and what was skipped")
     print("  /gsm buffs - your buffs, and the crafting buffs Goldsmith has seen")
     print("  /gsm perf - time each tab and show memory use")
-    print("  /gsm report - copy a bug report (versions, settings and recent errors) for GitHub")
+    print("  /gsm report - copy a bug report (versions, settings and recent errors) to paste in a comment")
     print("  /gsm reset - delete all transactions")
 end
 
