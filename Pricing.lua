@@ -278,7 +278,16 @@ local MARKET_TRUST_RATIO = 3
 -- A note that changes nothing starts with INFO_NOTE: it shows in the hover
 -- without "~" or "Adjusted:" (both said the price was changed when it wasn't,
 -- code review 2026-10-14).
+-- Over SOLD_EXTREME_RATIO times what it sold for, with fewer than
+-- SOLD_DEEP_QTY listed, is a shelf whatever the sell level: gold Gleeful
+-- Glamour - Night Elf was rated Sells (quiet items overcount, cancellations
+-- look like sales) with all 93 listings at 18,888g and sales at 9.82g, and
+-- was suggested for +53,825g (user, 2026-10-14). Deep markets are left as
+-- they were: this price is also a material's cost, and capping a deep
+-- material (19,939 listed at 5.25g, "sold for" 0.20g) would make crafts
+-- look cheaper than buying really is. The Haste scroll wall was 5.3x.
 local SOLD_HIGH_RATIO = 3
+local SOLD_EXTREME_RATIO = 10
 local SOLD_DEEP_QTY = 100
 local INFO_NOTE = "Note: "
 
@@ -291,6 +300,9 @@ local function SoldCap(itemID, price)
     local data = GoldsmithPriceData
     local entry = data and data.items and data.items[itemID]
     local level, sold, quantity = entry and entry[5], entry and entry[6], entry and entry[4]
+    if sold and sold > 0 and price > sold * SOLD_EXTREME_RATIO and (quantity or 0) < SOLD_DEEP_QTY then
+        return sold, string.format("listed at %s, but it sold for %s this week", FormatGold(price), FormatGold(sold))
+    end
     if level and level < addon.SELL_LEVEL.sells and sold and price > sold * SOLD_HIGH_RATIO then
         if quantity and quantity >= SOLD_DEEP_QTY then
             return nil, string.format("%sit sold for %s this week", INFO_NOTE, FormatGold(sold))
