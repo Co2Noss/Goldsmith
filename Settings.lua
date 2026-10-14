@@ -912,8 +912,8 @@ local HELP_SECTIONS = {
       "Show your cost, profit and break-even price. Hold Shift for each material's cost. Settings > Item tooltips makes them shorter or turns them off." },
     { "Recommended: Auctionator",
       "Goldsmith works without it: Goldsmith Data brings the region's AH prices, refreshed with each daily update, and how well each item sells. Auctionator adds two things. Its scans give live prices for the moment you buy and sell. And its Shopping tab is where Goldsmith's shopping lists go: Send to Auctionator in a plan or the Queue makes a list there, and Auctionator searches the AH for every item on it. The game's own AH has no shopping lists." },
-    { "Recommended: TSM",
-      "Goldsmith works without it too. With TSM installed, Goldsmith uses its region sales per day and sale rates instead of Goldsmith Data's Sells / Slow / Hardly sells, a check on listings far from the usual price, and prices between Auctionator scans. TSM's numbers are probably more accurate, but Goldsmith's own sell levels work well without it." },
+    { "If you already use TSM",
+      "Not needed: Goldsmith Data covers prices and how well each item sells (Sells / Slow / Hardly sells). If TSM and its desktop app are installed anyway, Goldsmith uses TSM's region sales per day and sale rates instead, a check on listings far from the usual price, and prices between Auctionator scans." },
     { "Commands",
       "Everything is in the window; commands are for checking what Goldsmith recorded. /gsm help lists them all, for example /gsm cooldowns (every craft cooldown it's found, and what the game reports), /gsm recipes and /gsm milling. The buttons below bring back the getting started checklist and the tour." },
 }

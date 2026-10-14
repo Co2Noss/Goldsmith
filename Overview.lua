@@ -845,23 +845,22 @@ local function SetupSteps()
     local hasTSM = addon:HasTSM()
     local hasAuctionator = HasAuctionator()
 
-    -- Both price addons are recommended, neither is needed (Goldsmith Data
-    -- covers prices and sell levels). Done once Auctionator is in, since
-    -- shopping lists need it; TSM stays a suggestion.
+    -- Auctionator is recommended (a plain CurseForge addon: live prices and
+    -- shopping lists), never needed: Goldsmith Data covers prices and sell
+    -- levels. TSM isn't recommended: its data needs the TSM desktop app from
+    -- outside CurseForge, the step players skip (user's guild, 2026-10-10);
+    -- it's only mentioned for those who already use it.
     local auctionatorTip = "Auctionator gives live prices when you scan the AH, and its Shopping tab is where Goldsmith's shopping lists go."
-    local tsmTip = "TSM's sales per day and sale rates are probably more accurate, but Goldsmith's own sell levels (Sells, Slow, Hardly sells) work well without it."
+    local tsmTip = "Already use TSM? Goldsmith uses its sales per day and sale rates when it's installed."
     if hasAuctionator and hasTSM then
         table.insert(steps, { true, "Auctionator and TSM found",
             "Auctionator for live prices and shopping lists, TSM for sales per day and sale rates." })
     elseif hasAuctionator then
-        table.insert(steps, { true, "Auctionator found",
-            "Using it for live prices and shopping lists. Optional: TSM (free, on CurseForge). " .. tsmTip })
-    elseif hasTSM then
-        table.insert(steps, { false, "Recommended: Auctionator",
-            "Free, on CurseForge. " .. auctionatorTip })
+        table.insert(steps, { true, "Auctionator found", "Using it for live prices and shopping lists." })
     else
-        table.insert(steps, { false, "Recommended: Auctionator and TSM",
-            "Both free on CurseForge, and optional: Goldsmith works without them. " .. auctionatorTip .. " " .. tsmTip })
+        table.insert(steps, { false, "Recommended: Auctionator",
+            "Free, on CurseForge, and optional: Goldsmith works without it. " .. auctionatorTip
+                .. (hasTSM and "" or (" " .. tsmTip)) })
     end
 
     local professions = CraftingProfessions()

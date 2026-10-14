@@ -874,7 +874,9 @@ local function CreatePage(parent)
             end
         end
         if #d.activity == 0 then
-            page.activityRows[1].detail:SetText("No purchases, crafts or sales recorded.")
+            -- Short: it sits in the detail column, which cut the longer
+            -- "No purchases, crafts or sales recorded." (2026-10-14)
+            page.activityRows[1].detail:SetText("Nothing recorded yet.")
             page.activityRows[1].detail:SetTextColor(addon:Color("muted"))
             page.activityRows[1].detail:Show()
         end
