@@ -252,7 +252,10 @@ local function Menu(row)
         end
         root:CreateButton("Open the item's page", function() addon:OpenItem(row.item, row.itemID) end)
         if row.kind == "Craft" then
-            root:CreateButton("This was a crafting order", function() addon:MarkCraftAsOrder(row.itemID, row.lot) end)
+            -- Worded as what it does: "This was a crafting order" read like
+            -- a statement about a row already marked Craft (user, 2026-10-14)
+            root:CreateButton("Move to Orders (it was made for a crafting order)",
+                function() addon:MarkCraftAsOrder(row.itemID, row.lot) end)
         end
         if row.kind == "Sale" then
             root:CreateCheckbox("Got it for free (loot or reward)",
@@ -349,8 +352,9 @@ local function Create(parent)
     view.itemChip.label:SetTextColor(addon:Color("gold"))
     view.itemChip:SetPoint("LEFT", view.character, "RIGHT", 10, 0)
 
+    -- Bottom right, on the footnote's line: by the filters, long totals ran
+    -- under the character dropdown (user 2026-10-14, "plenty of space there")
     view.summary = UI.Text(parent, "small", "muted", "RIGHT")
-    view.summary:SetPoint("TOPRIGHT", 0, -6)
 
     view.list = UI.List(parent, {
         fill = FillRow,
@@ -370,6 +374,7 @@ local function Create(parent)
     view.list:SetColumns(COLUMNS)
     view.footnote = UI.Text(parent, "small", "dim")
     view.footnote:SetPoint("BOTTOMLEFT", 2, 2)
+    view.summary:SetPoint("BOTTOMRIGHT", -2, 2)
     -- Deleted entries are kept to undo until you leave History (another
     -- tab, or the window closes)
     parent:HookScript("OnHide", function() wipe(deletedRows) end)
@@ -418,7 +423,7 @@ local function Refresh(view, state)
         shown = {}
         for _, row in ipairs(rows) do shown[#shown + 1] = row end
         for _, ghost in ipairs(ghosts) do shown[#shown + 1] = ghost end
-        table.sort(shown, function(a, b) return (a.time or 0) > (b.time or 0) end)
+        table.sort(shown, addon.HistoryNewest)
     end
     view.list:SetItems(shown)
     state.loading:Done(view.list)

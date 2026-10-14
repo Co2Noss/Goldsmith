@@ -101,6 +101,13 @@ local function FillRow(row, item)
             c.profit:SetText("-")
             c.profit:SetTextColor(addon:Color("dim"))
         end
+    else
+        -- No plan (the queued quality isn't readable now): clear what a
+        -- reused row showed before
+        c.crafts:SetText("-")
+        c.cost:SetText("-")
+        c.profit:SetText("-")
+        c.profit:SetTextColor(addon:Color("dim"))
     end
     local status, color = addon:QueueRowStatus(item, view.q)
     if view.next == item and item.state and item.state.enabled then color = "gold" end

@@ -23,6 +23,13 @@ local TIER_ROWS = 5
 
 local Money, Signed = function(c) return addon:FormatMoney(c) end, function(c) return addon:FormatSignedMoney(c) end
 
+-- "all characters", or "counted characters" with any excluded in Settings
+-- (stock leaves them out; "all" read wrong then, user 2026-10-14)
+local function WhoCounts()
+    local excluded = GoldsmithDB.settings and GoldsmithDB.settings.excluded
+    return (excluded and next(excluded)) and "counted characters" or "all characters"
+end
+
 -- The tier goes before the name, so a long name cut short never hides it
 local function ItemText(name, itemID)
     local tier, tierCount = addon:GetItemTier(itemID)
@@ -98,6 +105,13 @@ local BOARDS = {
         value = function(i) return Plural(i.days, "day"), "warning" end,
         tooltip = function(tooltip, i)
             tooltip:AddDoubleLine("You have", tostring(i.count), 0.8, 0.8, 0.8, 1, 1, 1)
+            -- Who holds it, as on the item page (user 2026-10-14: "how do
+            -- I know which character is holding it?")
+            local byCharacter = {}
+            if i.itemID then byCharacter = select(2, addon:GetStock(i.itemID)) end
+            for _, entry in ipairs(byCharacter) do
+                tooltip:AddDoubleLine("    " .. entry.name, addon:StockWhereText(entry), 0.7, 0.7, 0.7, 0.9, 0.9, 0.9)
+            end
             tooltip:AddDoubleLine("Worth", Money(i.value), 0.8, 0.8, 0.8, 1, 1, 1)
             addon:Explain(tooltip, "Check its break-even on the item page before cutting the price.", 0.6, 0.6, 0.6, true)
         end,
@@ -718,7 +732,7 @@ local function CreatePage(parent)
 
         local heldDays = d.heldSince and DaysSince(d.heldSince)
         local heldNote = heldDays and ("held " .. Plural(heldDays, "day"))
-            or (d.have > 0 and "all characters" or "none on any character")
+            or (d.have > 0 and WhoCounts() or "none on any character")
         t[4]:Set("You have", tostring(d.have), d.have > 0 and "text" or "dim", heldNote,
             heldDays and heldDays >= addon:Setting("heldDays") and "warning" or "muted")
         t[4].tooltip = function(tooltip)
@@ -1043,7 +1057,7 @@ local function Refresh(v, state)
         local rangeLabel = addon:GetDateRange(state.range).label:lower()
         for _, board in ipairs(v.boards) do
             local key = board.def.key
-            board:Set(boards[key], key == "held" and "all characters" or rangeLabel)
+            board:Set(boards[key], key == "held" and WhoCounts() or rangeLabel)
             loading:Done(board)
         end
         -- What clicks do is in the window's click legend (Legend below)
@@ -1087,7 +1101,8 @@ local function Refresh(v, state)
         v.list:SetSort(sort.key, sort.descending)
         v.list:SetEmptyText(search ~= "" and "Nothing you hold matches." or "Nothing tracked in your bags yet.")
         v.list:SetColumnsAndItems(addon:AvailableColumns(STOCK_COLUMNS), items)
-        v.footer:SetText(string.format("%s in %s, all characters and the warband bank", Money(value), Plural(#items, "item")))
+        v.footer:SetText(string.format("%s in %s, %s and the warband bank", Money(value), Plural(#items, "item"),
+            WhoCounts()))
         v.note:SetText("")
     else
         local results = addon:SearchItems(search, state.profession, SEARCH_LIMIT)

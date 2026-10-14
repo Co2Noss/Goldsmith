@@ -1995,8 +1995,19 @@ History = function(filters)
     end
 
     -- Can be thousands of rows: a sort that can wait for a frame
-    addon:Sort(rows, function(a, b) return a.time > b.time end)
+    addon:Sort(rows, addon.HistoryNewest)
     return rows, totals
+end
+
+-- History's order: newest first, and a fixed order for rows with the same
+-- time (sales collected from one mailbox visit share a second, and swapped
+-- places on every redraw, user 2026-10-14): ledger order, then type, name
+function addon.HistoryNewest(a, b)
+    if (a.time or 0) ~= (b.time or 0) then return (a.time or 0) > (b.time or 0) end
+    local ida, idb = a.entry and a.entry.id or 0, b.entry and b.entry.id or 0
+    if ida ~= idb then return ida > idb end
+    if (a.kind or "") ~= (b.kind or "") then return (a.kind or "") < (b.kind or "") end
+    return tostring(a.item) < tostring(b.item)
 end
 
 -- Characters with ledger entries, for History's filter: { { key, name } }

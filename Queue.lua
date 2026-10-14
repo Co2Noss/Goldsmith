@@ -340,14 +340,29 @@ function addon:BuildQueue(charKey)
             if row.recipe and row.remaining > 0 then
                 row.p = { recipe = row.recipe, charKey = charKey, tier = e.tier, concentrate = e.concentrate }
                 row.tierInfo = addon:WithCharacter(charKey, addon.FindTierInfo, row.p)
-                -- The mix the planner shows: what you hold, or your pick
-                if row.tierInfo then
-                    row.tierInfo = addon:WithCharacter(charKey, addon.ChooseMix, addon, row.recipe, row.tierInfo,
-                        row.remaining)
+                if e.tier and not row.tierInfo then
+                    -- The queued quality isn't among the recipe's ways to make
+                    -- it right now (after a relog, before the profession's
+                    -- data is read). Planning without a tier showed a silver
+                    -- plan at a loss for a gold entry and would craft
+                    -- whatever came out (2026-10-14): wait instead.
+                    row.tierMissing = true
+                    if mine then
+                        row.state = { enabled = false, notes = {}, steps = {},
+                            blockers = { "Open " .. (row.recipe.profession or "the profession")
+                                .. " so Goldsmith can read this quality again." } }
+                    end
+                else
+                    -- The mix the planner shows: what you hold, or your pick
+                    if row.tierInfo then
+                        row.tierInfo = addon:WithCharacter(charKey, addon.ChooseMix, addon, row.recipe, row.tierInfo,
+                            row.remaining)
+                    end
+                    plan = addon:WithCharacter(charKey, addon.BuildPlan, addon, row.recipe, row.remaining, useOnHand,
+                        row.tierInfo, pool)
+                    if mine then row.state = addon.GetCraftState(row.p, row.tierInfo, plan) end
                 end
-                plan = addon:WithCharacter(charKey, addon.BuildPlan, addon, row.recipe, row.remaining, useOnHand,
-                    row.tierInfo, pool)
-                if mine then row.state = addon.GetCraftState(row.p, row.tierInfo, plan) end
+                if row.tierMissing then q.complete = false end
             end
         end
         row.plan = plan
@@ -403,7 +418,12 @@ function addon:QueueRowName(row)
     local name = row.recipe and row.recipe.outputName
         or (row.entry.recipeID and ("recipe " .. row.entry.recipeID)) or "?"
     local icon = row.tierInfo and (addon:TierIconText(row.tierInfo.tier, row.tierInfo.tierCount) .. " ") or ""
-    if not row.tierInfo and row.recipe and row.recipe.recipeID then
+    if row.tierMissing then
+        -- The queued quality, waiting to be read again (BuildQueue)
+        local c = row.p and GoldsmithDB.characters[row.p.charKey]
+        local td = c and c.tierData and c.tierData[row.entry.recipeID]
+        icon = addon:TierIconText(row.entry.tier, td and td.qualities and #td.qualities or nil) .. " "
+    elseif not row.tierInfo and row.recipe and row.recipe.recipeID then
         -- A refine: the one quality it makes
         local tier, tierCount = addon:FixedTier(row.recipe)
         icon = tier and (addon:TierIconText(tier, tierCount) .. " ") or ""
