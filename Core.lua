@@ -116,7 +116,7 @@ local function RecordSale(sale)
     local unitCost, partial, costSource = addon:GetUnitCostBasis(sale.itemName, sale.count, itemID)
     local costBasis = unitCost and math.floor(unitCost * sale.count + 0.5)
     addon.ledger:addRevenue(prof, sale.itemName, sale.count, sale.net, costBasis, partial, sale.depositRefund,
-        costBasis and costSource, itemID)
+        costBasis and costSource, itemID, { soldAt = sale.soldAt })
     addon:AuctionSold(sale.itemName, sale.count)
 
     if prof == "Unassigned" then
@@ -160,6 +160,9 @@ local function OnTakeMailMoney(index)
         depositRefund = deposit or 0,
         -- What it sold for before the cut, to match it to your post (its quality)
         bid = bid,
+        -- When it sold (the entry's timestamp is when you collected it): the
+        -- mail arrived then, and AH mail lasts 30 days
+        soldAt = daysLeft and daysLeft <= 30 and time() - math.floor((30 - daysLeft) * 86400) or nil,
         time = GetTime(),
     })
 end
@@ -217,8 +220,14 @@ local POST_TIMEOUT = 30
 local function QueuePost(itemLocation, deposit, quantity)
     if not deposit or deposit <= 0 then return end
     if not C_Item.DoesItemExist(itemLocation) then return end
+    -- The exact item and its Goldsmith Data sell level when posted, to check
+    -- later how well levels predict what sells (GoldsmithData
+    -- tools/score-levels.js)
+    local itemID = C_Item.GetItemID(itemLocation)
     table.insert(pendingPosts, {
         name = C_Item.GetItemName(itemLocation),
+        itemID = itemID,
+        level = addon:GetSellLevel(itemID),
         quantity = quantity,
         deposit = deposit,
         time = GetTime(),
@@ -282,7 +291,8 @@ local function RecordDeposit()
     if not post or not post.name then return end
 
     local prof = addon:GetProfessionForItemName(post.name) or "Unassigned"
-    addon.ledger:addCost(prof, post.name, post.quantity, post.deposit, "DEPOSIT")
+    addon.ledger:addCost(prof, post.name, post.quantity, post.deposit, "DEPOSIT", nil,
+        { postedID = post.itemID, sellLevel = post.level })
     addon:Notify("money", "Posted %s x%d, deposit %.2fg", post.name, post.quantity, post.deposit / 10000)
 
     if addon.Refresh then

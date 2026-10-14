@@ -51,10 +51,11 @@ function addon:CreateLedger(store)
     local index, indexVersion, indexCount
 
     return {
-        -- kind is "PURCHASE" (default) or "DEPOSIT"
-        addCost = function(self, prof, item, qty, totalCopper, kind, itemID)
+        -- kind is "PURCHASE" (default) or "DEPOSIT"; extra = more fields for
+        -- the entry (a deposit's postedID and sellLevel)
+        addCost = function(self, prof, item, qty, totalCopper, kind, itemID, extra)
             version = version + 1
-            table.insert(entries, {
+            local e = {
                 id = store.nextId,
                 type = "COST",
                 kind = kind or "PURCHASE",
@@ -66,7 +67,9 @@ function addon:CreateLedger(store)
                 timestamp = time(),
                 character = UnitName("player"),
                 realm = GetRealmName(),
-            })
+            }
+            for k, v in pairs(extra or {}) do e[k] = v end
+            table.insert(entries, e)
             store.nextId = store.nextId + 1
         end,
 
@@ -74,9 +77,11 @@ function addon:CreateLedger(store)
         -- costPartial means some of their material costs were unknown
         -- depositRefund is the deposit returned inside this sale's amount
         -- costSource says where costBasis came from (see GetUnitCostBasis)
-        addRevenue = function(self, prof, item, qty, totalCopper, costBasis, costPartial, depositRefund, costSource, itemID)
+        -- extra = more fields for the entry (soldAt)
+        addRevenue = function(self, prof, item, qty, totalCopper, costBasis, costPartial, depositRefund, costSource, itemID,
+                extra)
             version = version + 1
-            table.insert(entries, {
+            local e = {
                 costBasis = costBasis,
                 costPartial = costPartial,
                 costSource = costSource,
@@ -92,7 +97,9 @@ function addon:CreateLedger(store)
                 timestamp = time(),
                 character = UnitName("player"),
                 realm = GetRealmName(),
-            })
+            }
+            for k, v in pairs(extra or {}) do e[k] = v end
+            table.insert(entries, e)
             store.nextId = store.nextId + 1
         end,
 
