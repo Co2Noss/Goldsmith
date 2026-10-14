@@ -71,8 +71,8 @@ end
 -- Working out every character's crafts and concentration plans takes long
 -- enough to stutter the game, so results are kept until data changes:
 -- addon.Refresh (prices, stock, recipes, crafts, settings) calls
--- DataChanged. Switching tabs, scrolling and excluding a character only
--- redraw. As a safety net a cache also empties after CACHE_SECONDS.
+-- DataChanged, as does excluding a character. Switching tabs and
+-- scrolling only redraw. As a safety net a cache also empties after CACHE_SECONDS.
 local CACHE_SECONDS = 300
 addon.dataVersion = 0
 
@@ -267,12 +267,14 @@ function addon:IsCharacterIncluded(charKey)
     return not (excluded and excluded[charKey])
 end
 
--- Also on the Characters tab. Cached results are kept for every character,
--- so excluding one only redraws.
+-- Also on the Characters tab. Most cached results are kept for every
+-- character, but not all (Items' Held board kept an excluded alt's items,
+-- 2026-10-14), so cached results go: excluding is rare.
 function addon:SetCharacterIncluded(charKey, included)
     GoldsmithDB.settings = GoldsmithDB.settings or {}
     GoldsmithDB.settings.excluded = GoldsmithDB.settings.excluded or {}
     GoldsmithDB.settings.excluded[charKey] = (not included) or nil
+    addon:DataChanged()
     if addon.RefreshWindow then addon.RefreshWindow() end
 end
 local function SetCharacterIncluded(charKey, included) addon:SetCharacterIncluded(charKey, included) end
@@ -859,8 +861,7 @@ function addon:CreateSettingsPanel(parent)
 
         -- Price source only matters with both price addons installed. Laid
         -- out here rather than once: TSM can finish loading after Goldsmith.
-        local hasAuctionator = Auctionator and Auctionator.API and Auctionator.API.v1
-        rows.priceSource:SetShown(hasAuctionator and addon:HasTSM() and true or false)
+        rows.priceSource:SetShown(addon:HasAuctionator() and addon:HasTSM() and true or false)
         local lowest = ROWS_TOP
         for i, column in ipairs(COLUMNS) do
             local top = ROWS_TOP

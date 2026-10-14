@@ -275,8 +275,17 @@ local MARKET_TRUST_RATIO = 3
 -- Haste scroll: 16,515 at 5.03g, "sold for" 0.95g, priced 0.95g, user
 -- 2026-10-09); the sale price is only noted. Returns the sale price and a
 -- note, nil and a note, or nil when the price is fine.
+-- A note that changes nothing starts with INFO_NOTE: it shows in the hover
+-- without "~" or "Adjusted:" (both said the price was changed when it wasn't,
+-- code review 2026-10-14).
 local SOLD_HIGH_RATIO = 3
 local SOLD_DEEP_QTY = 100
+local INFO_NOTE = "Note: "
+
+-- Whether a price note means the price was changed (so it shows with "~")
+function addon:PriceAdjusted(note)
+    return note ~= nil and note:sub(1, #INFO_NOTE) ~= INFO_NOTE
+end
 
 local function SoldCap(itemID, price)
     local data = GoldsmithPriceData
@@ -284,7 +293,7 @@ local function SoldCap(itemID, price)
     local level, sold, quantity = entry and entry[5], entry and entry[6], entry and entry[4]
     if level and level < addon.SELL_LEVEL.sells and sold and price > sold * SOLD_HIGH_RATIO then
         if quantity and quantity >= SOLD_DEEP_QTY then
-            return nil, string.format("it sold for %s this week", FormatGold(sold))
+            return nil, string.format("%sit sold for %s this week", INFO_NOTE, FormatGold(sold))
         end
         return sold, string.format("listed at %s, but it sold for %s this week", FormatGold(price), FormatGold(sold))
     end
@@ -532,7 +541,7 @@ end
 -- off as the listing (design review, 2026-10-09: show what the numbers do).
 function addon:PriceSourceText(itemID, source, age, note)
     local text = addon:PlainPriceSourceText(itemID, source, age)
-    return note and (text .. ", adjusted") or text
+    return addon:PriceAdjusted(note) and (text .. ", adjusted") or text
 end
 
 function addon:PlainPriceSourceText(itemID, source, age)
@@ -550,8 +559,9 @@ function addon:PlainPriceSourceText(itemID, source, age)
     if source == "Blizzard" then return BlizzardAgeText() end
     if source == "Vendor" then return "vendor" end
     if source == "Contents" then
-        local _, opened = addon:GetBoxValue(itemID)
-        return string.format("what's inside, average of %d opened", opened or 0)
+        local _, opened, complete = addon:GetBoxValue(itemID)
+        return string.format("what's inside, average of %d opened%s", opened or 0,
+            complete == false and " (some of it has no price, so at least this)" or "")
     end
     if source == "Auctionator" then
         return age and ("Auctionator, " .. addon:FormatAge(age, itemID):gsub("^from ", "")) or "Auctionator"
@@ -584,6 +594,10 @@ end
 -- with Ctrl: it changes what the number means.
 function addon:AddPriceNote(tooltip, note)
     if not note then return end
+    if not addon:PriceAdjusted(note) then
+        tooltip:AddLine(note .. ".", 0.8, 0.8, 0.8, true)
+        return
+    end
     local r, g, b = addon:Color("warning")
     tooltip:AddLine("Adjusted: " .. note .. ".", r, g, b, true)
 end
@@ -1499,7 +1513,9 @@ local function OnCraftResult(resultData)
     if not recipe then return end
     -- Ignore results that aren't this recipe's item (e.g. a different craft)
     if C_Item.GetItemNameByID(resultData.itemID) ~= recipe.outputName then return end
-    addon:QueueCrafted(currentCraftRecipeID, resultData.quantity)
+    if not currentCraftIsOrder then
+        addon:QueueCrafted(currentCraftRecipeID, resultData.quantity, resultData.itemID)
+    end
 
     local stats = GoldsmithDB.craftStats[currentCraftRecipeID]
     if not stats then
@@ -2400,34 +2416,7 @@ function addon:GetUnitCostBasis(itemName, units, itemID)
     end
 end
 
--- The user's 3 silver Thalassian Missive of the Harmonious crafts of
--- 2026-10-10 15:04 were saved with their materials valued by name (2
--- silver Munsell Ink at 37.50g each, the average with gold, instead of
--- 11.46g). Worked back from each lot's cost, with silver Munsell and
--- Sienna Ink at what they cost (11.46g, 20.16g): 63.68g, 52.22g and 26.11g
--- x2. Runs once (harmoniousLotsRepaired); only those lots, matched by time
--- and the wrong cost. Crafts saved since keep what they used (lot.used).
-local HARMONIOUS_FIX = {
-    [1791669855] = { was = 768121, now = 522200 },
-    [1791669858] = { was = 384061, now = 261100 },
-    [1791669861] = { was = 1110284, now = 636800 },
-}
-function addon:RepairHarmoniousLots()
-    if GoldsmithDB.harmoniousLotsRepaired then return 0 end
-    local changed = 0
-    for _, lot in ipairs(GoldsmithDB.craftLots and GoldsmithDB.craftLots[245787] or {}) do
-        local fix = HARMONIOUS_FIX[lot.time]
-        if fix and not lot.used and math.abs(lot.unitCost - fix.was) < 100 then
-            lot.unitCost = fix.now
-            changed = changed + 1
-        end
-    end
-    if changed > 0 then craftLotsVersion = craftLotsVersion + 1 end
-    GoldsmithDB.harmoniousLotsRepaired = true
-    return changed
-end
-
--- Sales saved before that fix with a recipe estimate though you had bought
+-- Sales saved before the fix to value materials by item (2026-10-10) with a recipe estimate though you had bought
 -- the item: their cost becomes what you paid, from the newest purchases
 -- before the sale that cover it. Runs once (estimatedSalesRepaired).
 -- Returns how many sales changed.

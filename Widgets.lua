@@ -104,6 +104,7 @@ end
 -- Every Goldsmith hover is drawn between UI.BeginTooltip and UI.EndTooltip
 -- (the widgets below do it); redraw = function that draws it again.
 local tip = { owner = nil, redraw = nil, hidden = false, explained = false }
+local modifierWatch -- below
 
 function addon:ExplanationsShown()
     return IsControlKeyDown()
@@ -122,6 +123,7 @@ end
 function UI.BeginTooltip(owner, redraw)
     tip.owner, tip.redraw, tip.hidden, tip.explained = owner, redraw, false, false
     tip.ctrl = IsControlKeyDown()
+    modifierWatch:Show()
 end
 
 function UI.EndTooltip(tooltip)
@@ -314,10 +316,16 @@ end
 -- Ctrl going down or up while a Goldsmith hover shows draws it again. Read
 -- each frame rather than from MODIFIER_STATE_CHANGED: the event didn't
 -- reach the window's hovers ("Hold Ctrl to explain" did nothing on the gold
--- goal, user 2026-10-11). Cheap: one key check while a hover is up.
-local modifierWatch = CreateFrame("Frame")
-modifierWatch:SetScript("OnUpdate", function()
-    if not tip.redraw or not GameTooltip:IsShown() or GameTooltip:GetOwner() ~= tip.owner then return end
+-- goal, user 2026-10-11). Runs only while a Goldsmith hover is up: shown
+-- by UI.BeginTooltip, hidden once the hover is gone (it ran every frame
+-- all session before, code review 2026-10-14).
+modifierWatch = CreateFrame("Frame")
+modifierWatch:Hide()
+modifierWatch:SetScript("OnUpdate", function(self)
+    if not tip.redraw or not GameTooltip:IsShown() or GameTooltip:GetOwner() ~= tip.owner then
+        self:Hide()
+        return
+    end
     local ctrl = IsControlKeyDown()
     if ctrl ~= tip.ctrl then
         tip.ctrl = ctrl

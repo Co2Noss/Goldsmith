@@ -212,7 +212,7 @@ local function FillCraftRow(row, item)
     if info.price then
         -- ~ marks a price Goldsmith adjusted (an undercut or shelf listing
         -- replaced by the usual price); the hover says why
-        cells.price:SetText((info.priceNote and "~" or "") .. Money(info.price))
+        cells.price:SetText((addon:PriceAdjusted(info.priceNote) and "~" or "") .. Money(info.price))
         if info.priceAge and info.priceAge >= STALE_PRICE_DAYS then
             cells.price:SetTextColor(addon:Color("warning"))
         end
@@ -425,7 +425,7 @@ local function CraftTooltip(tooltip, item)
         -- "Auctionator, 2 days old", "TSM". From the row's own price, since
         -- gear tiers are priced by link, not by their shared item ID.
         Line(tooltip, "Price data", addon:PriceSourceText(item.itemID, info.priceSource, info.priceAge, info.priceNote),
-            (stale or info.priceNote) and "warning" or "muted")
+            (stale or addon:PriceAdjusted(info.priceNote)) and "warning" or "muted")
         addon:AddPriceNote(tooltip, info.priceNote)
         Why(tooltip, "What it sells for now: the lowest listing, or the usual price when the lowest is far below it (a stray cheap listing) or far above what it sells for (a shelf price). A ~ before the price in the list means it was adjusted. Price data says where it came from and how old it is.")
         Line(tooltip, "Profit each", string.format("%s%s", Signed(info.profit),
@@ -958,6 +958,13 @@ end
 -- quality whose price was out of date once buying rescans it. Vendor
 -- items are skipped.
 local STALE_DATA_DAYS = 2
+-- The one rule for an old price (the planner, salvage and the queue all
+-- use it; salvage and the queue had Goldsmith Data old at a day, 2026-10-14)
+function addon:IsPriceOld(source, age)
+    return (source == "Auctionator" and (age or 0) >= 1)
+        or (source == "Blizzard" and (age or 0) >= STALE_DATA_DAYS)
+end
+
 local function StalePrices(plan)
     local seen, stale = {}, {}
     local function Check(itemID)
@@ -965,9 +972,7 @@ local function StalePrices(plan)
         seen[itemID] = true
         if addon:GetVendorPrice(itemID) then return end
         local price, source, age = addon:GetAHPriceInfo(itemID)
-        local old = (source == "Auctionator" and (age or 0) >= 1)
-            or (source == "Blizzard" and (age or 0) >= STALE_DATA_DAYS)
-        if not price or old then
+        if not price or addon:IsPriceOld(source, age) then
             table.insert(stale, { itemID = itemID })
         end
     end
@@ -1624,7 +1629,9 @@ local function CreatePlanScreen(parent)
             local p, base = screen.plan, screen.baseTierInfo
             if not (self.entry and p and base) then return end
             -- Clicking your own pick again goes back to Goldsmith's
-            local e = (self.picked and self.yours) and nil or self.entry
+            -- (an if, since "x and nil or y" is always y)
+            local e = self.entry
+            if self.picked and self.yours then e = nil end
             if self.picked and not self.yours then return end
             addon:WithCharacter(p.charKey, addon.SetPlanMix, addon, p.recipe, base, e,
                 screen:PlannedItems())
@@ -2601,7 +2608,7 @@ local function CreateSalvageScreen(parent)
             warn = found.whyNot
         else
             local _, source, age = addon:GetAHPriceInfo(t.itemID)
-            if (source == "Auctionator" or source == "Blizzard") and (age or 0) >= 1 then
+            if addon:IsPriceOld(source, age) then
                 warn = "Old AH price for " .. t.name .. ". Scan the AH first, or the numbers may change after you buy."
             end
         end

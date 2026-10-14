@@ -169,7 +169,11 @@ local function UseSampleData(onReady)
             savedUI[key] = own
             if value == false then ui[key] = nil else ui[key] = value end
         end
-        saved = { db = GoldsmithDB, char = addon.char, ledger = addon.ledger, entries = #db.entries,
+        -- firstNewId: entries the sample's ledger numbers from here on were
+        -- recorded during the tour. By id, not position: History's delete
+        -- takes sample rows out, which shifted later entries down
+        db.nextId = db.nextId or (#db.entries + 1)
+        saved = { db = GoldsmithDB, char = addon.char, ledger = addon.ledger, firstNewId = db.nextId,
             prices = GoldsmithPriceData }
         GoldsmithDB = db
         -- The sample's own prices, frozen when it was made, so the tour looks
@@ -195,11 +199,12 @@ local function UseOwnData()
     -- Transactions recorded during the tour are the player's: keep them
     own.entries = own.entries or {}
     own.nextId = own.nextId or (#own.entries + 1)
-    for i = saved.entries + 1, #(sample.entries or {}) do
-        local e = sample.entries[i]
-        e.id = own.nextId
-        own.nextId = own.nextId + 1
-        table.insert(own.entries, e)
+    for _, e in ipairs(sample.entries or {}) do
+        if (e.id or 0) >= saved.firstNewId then
+            e.id = own.nextId
+            own.nextId = own.nextId + 1
+            table.insert(own.entries, e)
+        end
     end
     for _, key in ipairs(SHARED_KEYS) do own[key] = sample[key] end
     if savedUI and own.ui2 then

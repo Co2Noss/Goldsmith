@@ -200,9 +200,23 @@ local function Progress(match, quantity, describe)
     end
 end
 
--- A craft finished (Pricing.lua's craft result)
-function addon:QueueCrafted(recipeID, quantity)
-    Progress(function(e) return e.recipeID == recipeID end, quantity, function(e)
+-- A craft finished (Pricing.lua's craft result; not order crafts, which
+-- go to the customer). itemID is what it made: a different quality than
+-- the entry's tier doesn't count toward it (silver made by hand isn't the
+-- gold queued). Recipes without tiers, gear (one item for every tier) or
+-- tiers not read yet match on the recipe alone.
+function addon:QueueCrafted(recipeID, quantity, itemID)
+    local madeTier
+    local td = addon.char.tierData and addon.char.tierData[recipeID]
+    for tier, out in pairs(td and td.outputs or {}) do
+        if out.itemID == itemID then
+            if madeTier then madeTier = nil break end -- gear: same item every tier
+            madeTier = tier
+        end
+    end
+    Progress(function(e)
+        return e.recipeID == recipeID and (not e.tier or not madeTier or e.tier == madeTier)
+    end, quantity, function(e)
         local recipe = GoldsmithDB.recipes[recipeID]
         return string.format("made %d %s", e.made, recipe and recipe.outputName or "items")
     end)
@@ -373,7 +387,7 @@ function addon:QueueStalePrices(q)
             for _, o in ipairs(plan.outputs) do table.insert(ids, o.itemID) end
             for _, itemID in ipairs(ids) do
                 local price, source, age = addon:GetAHPriceInfo(itemID)
-                if not price or ((source == "Auctionator" or source == "Blizzard") and (age or 0) >= 1) then
+                if not price or addon:IsPriceOld(source, age) then
                     Add(itemID)
                 end
             end
@@ -678,6 +692,16 @@ for _, event in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SP
 end
 events:SetScript("OnEvent", function(_, event)
     if event == "TRADE_SKILL_CLOSE" then syncedKey = nil end
+    -- A cast starting only greys the button: nothing it plans has changed
+    -- yet, and rebuilding the queue on every start and stop of a batch was
+    -- twice the work (code review, 2026-10-14). The stop rebuilds it.
+    if event == "UNIT_SPELLCAST_START" then
+        if panel and panel:IsShown() then
+            panel.button:SetEnabled(false)
+            panel.button:SetAlpha(0.5)
+        end
+        return
+    end
     UpdateSoon()
 end)
 

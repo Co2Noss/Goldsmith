@@ -648,8 +648,9 @@ local function CreatePage(parent)
         -- An adjusted price (undercut or shelf listing replaced by the usual
         -- price) gets a ~ and an orange source line, with the reason in the
         -- hover
-        t[1]:Set("AH price", d.price and ((d.priceNote and "~" or "") .. Money(d.price)) or "-", d.price and "text" or "dim",
-            d.price and d.priceText or "scan with Auctionator", (stale or d.priceNote) and "warning" or "muted")
+        local adjusted = addon:PriceAdjusted(d.priceNote)
+        t[1]:Set("AH price", d.price and ((adjusted and "~" or "") .. Money(d.price)) or "-", d.price and "text" or "dim",
+            d.price and d.priceText or "scan with Auctionator", (stale or adjusted) and "warning" or "muted")
         t[1].tooltip = function(tooltip)
             tooltip:AddLine("AH price", 1, 1, 1)
             if d.priceSource then tooltip:AddDoubleLine("From", d.priceText or d.priceSource, 0.8, 0.8, 0.8, 1, 1, 1) end

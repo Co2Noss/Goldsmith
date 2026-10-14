@@ -195,10 +195,11 @@ GetOptions = function(itemID, name, depth, memo, visiting)
 
     -- Mill it from a herb you've milled before, once you've salvaged it
     -- MIN_SALVAGE_CASTS times: fewer is luck, not a rate (3 gems crushed
-    -- into 1 gemdust planned crushing at a loss, 2026-10-09)
+    -- into 1 gemdust planned crushing at a loss, 2026-10-09). Records from
+    -- before perCast was kept count as no casts: herbs aren't casts.
     for herbID, record in pairs(GoldsmithDB.milling) do
         local out = record.outputs[itemID]
-        local casts = record.milled / math.max(record.perCast or 1, 1)
+        local casts = record.perCast and record.milled / math.max(record.perCast, 1) or 0
         if out and out.qty > 0 and record.milled > 0 and casts >= MIN_SALVAGE_CASTS then
             local herbCost = addon:GetMarketPrice(herbID) or addon:GetAverageCost(record.name)
             if herbCost then

@@ -117,7 +117,7 @@ local function RecordSale(sale)
     local costBasis = unitCost and math.floor(unitCost * sale.count + 0.5)
     addon.ledger:addRevenue(prof, sale.itemName, sale.count, sale.net, costBasis, partial, sale.depositRefund,
         costBasis and costSource, itemID, { soldAt = sale.soldAt })
-    addon:AuctionSold(sale.itemName, sale.count)
+    addon:AuctionSold(sale.itemName, sale.count, itemID)
 
     if prof == "Unassigned" then
         addon:Notify("money", "Sold %s x%d for %.2fg after AH cut, incl. deposit refund (not a tracked item, saved as Unassigned)",
@@ -469,8 +469,8 @@ function addon:Initialize()
     addon.ledger = addon:CreateLedger(GoldsmithDB)
     -- Sales costed at a recipe estimate though you'd bought the item (once)
     addon:RepairEstimatedSales()
-    -- Missive crafts whose materials were valued by name (once)
-    addon:RepairHarmoniousLots()
+    -- A one-off repair of the developer's own Missive lots, done and removed
+    GoldsmithDB.harmoniousLotsRepaired = nil
     -- Keep history for (Settings); after login settles, like the other chores
     C_Timer.After(15, function() addon:TrimHistory() end)
     addon:CreateWindow()

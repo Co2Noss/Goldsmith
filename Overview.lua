@@ -815,9 +815,7 @@ local NO_RECIPES = { [182] = true, [393] = true }   -- Herbalism, Skinning
 local READY_ICON = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local WAITING_ICON = "Interface\\RaidFrame\\ReadyCheck-Waiting"
 
-local function HasAuctionator()
-    return Auctionator and Auctionator.API and Auctionator.API.v1 and true or false
-end
+local function HasAuctionator() return addon:HasAuctionator() end
 
 -- This character's crafting professions, in the order the game lists them,
 -- and which of them have recipes loaded

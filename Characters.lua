@@ -223,14 +223,15 @@ end
 -- slot. Containers the game hasn't loaded are skipped; their items count
 -- as "tier unknown" (see GetHeld). Bound gear can't be sold, so it's left
 -- out and counted apart. Returns own tiers, warband tiers, bound
--- ({ [itemID] = count } in your bags and bank), bound in the warband bank.
+-- ({ [itemID] = count } in your bags and bank), bound in the warband bank,
+-- and bound in your bags alone (for the bags/bank split).
 local function ScanGearTiers(ids)
     local own, warband, seen = {}, {}, {}
-    local bound, boundWarband = {}, {}
+    local bound, boundWarband, boundBags = {}, {}, {}
     for name, bag in pairs(Enum.BagIndex or {}) do
+        local isBag = name == "Backpack" or name:find("^Bag_") or name == "ReagentBag"
         local tiers = (name:find("^Account") and warband)
-            or ((name == "Backpack" or name:find("^Bag_") or name == "ReagentBag"
-                or name:find("Bank")) and own)
+            or ((isBag or name:find("Bank")) and own)
         -- Some bags have more than one name
         if tiers and not seen[bag] then
             seen[bag] = true
@@ -238,8 +239,10 @@ local function ScanGearTiers(ids)
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 if info and ids[info.itemID] and addon:IsGear(info.itemID) then
                     if info.isBound == true then
+                        local count = info.stackCount or 1
                         local list = tiers == warband and boundWarband or bound
-                        list[info.itemID] = (list[info.itemID] or 0) + (info.stackCount or 1)
+                        list[info.itemID] = (list[info.itemID] or 0) + count
+                        if isBag then boundBags[info.itemID] = (boundBags[info.itemID] or 0) + count end
                     else
                         local tier = GearTier(info.hyperlink)
                         if tier then AddTier(tiers, info.itemID, tier, info.stackCount or 1) end
@@ -248,7 +251,7 @@ local function ScanGearTiers(ids)
             end
         end
     end
-    return own, warband, bound, boundWarband
+    return own, warband, bound, boundWarband, boundBags
 end
 
 -- What you have equipped ({ [itemID] = count }): gear and profession tools
@@ -277,12 +280,14 @@ local function SnapshotStock()
     -- rest are in your bags; user, 2026-10-11)
     local inBank = {}
     local ids = GetStockItemIDs()
-    local gearTiers, warbandTiers, bound, boundWarband = ScanGearTiers(ids)
+    local gearTiers, warbandTiers, bound, boundWarband, boundBags = ScanGearTiers(ids)
     local equipped = EquippedItems()
     for itemID in pairs(ids) do
         local own = C_Item.GetItemCount(itemID, true, false, true, false) or 0
         local withWarband = C_Item.GetItemCount(itemID, true, false, true, true) or 0
+        -- Bound gear in bags is left out of own below, so out of this too
         local inBags = (C_Item.GetItemCount(itemID, false, false, true, false) or 0) - (equipped[itemID] or 0)
+            - (boundBags[itemID] or 0)
         local inWarband = withWarband - own
         -- Not for sale: what you wear, and bound gear
         own = own - (equipped[itemID] or 0) - (bound[itemID] or 0)
@@ -368,17 +373,25 @@ local function QueryAuctions()
     end
 end
 
--- A sale collected from the mail (Core.lua): the mail names the item, not
--- its ID, so it's matched by name
-function addon:AuctionSold(itemName, count)
+-- A sale collected from the mail (Core.lua). itemID is the quality, when
+-- the sale matched your post; the mail itself only names the item. By name
+-- only when one listing has that name: qualities share it, and lowering
+-- the wrong one made Goldsmith suggest a quality still listed. Otherwise
+-- the counts wait for the next AH visit (held errs toward not suggesting).
+function addon:AuctionSold(itemName, count, itemID)
     local auctions = addon.char.auctions
-    for itemID, listed in pairs(auctions) do
-        if C_Item.GetItemNameByID(itemID) == itemName then
-            local left = listed - (count or 1)
-            auctions[itemID] = left > 0 and left or nil
-            return
+    if not (itemID and auctions[itemID]) then
+        itemID = nil
+        for id in pairs(auctions) do
+            if C_Item.GetItemNameByID(id) == itemName then
+                if itemID then return end
+                itemID = id
+            end
         end
+        if not itemID then return end
     end
+    local left = auctions[itemID] - (count or 1)
+    auctions[itemID] = left > 0 and left or nil
 end
 
 -- Everything you hold of an item, whether or not the character counts

@@ -205,11 +205,14 @@ end
 -- where it was, until you leave History: click it to undo. Several can be
 -- deleted and each undone (user, 2026-10-10: in the list, not one button).
 local deletedRows = {}
+-- The filters the list was last drawn with: a deleted row shows only under
+-- the filters it was deleted from (it ignored them, code review 2026-10-14)
+local currentFilter
 
 local function Deleted(row, restore)
     local ghost = {}
     for k, v in pairs(row) do ghost[k] = v end
-    ghost.deleted, ghost.restore = true, restore
+    ghost.deleted, ghost.restore, ghost.filter = true, restore, currentFilter
     table.insert(deletedRows, ghost)
 end
 
@@ -394,20 +397,27 @@ local function Refresh(view, state)
     -- it takes more than a frame; the filters above stay usable
     state.loading:Begin(view.list)
     -- One item's history (from its page) covers every date and profession
-    local rows, totals = addon:GetHistory({
+    local filter = {
         prof = view.item and "All" or state.profession, since = not view.item and state.since or nil,
         kind = ui.historyKind, character = ui.historyCharacter, item = view.item,
-    })
+    }
+    currentFilter = table.concat({ tostring(filter.prof), tostring(filter.since), tostring(filter.kind),
+        tostring(filter.character), tostring(filter.item), addon:ExpansionFilterKey() }, "|")
+    local rows, totals = addon:GetHistory(filter)
     view.list:SetEmptyText(#addon.ledger:getAll() == 0
         and "Nothing recorded yet. Purchases, sales and AH deposits are recorded as you make them."
         or "Nothing matches. Try another type, All characters, or a longer date range or All expansions at the top.")
     -- Deleted ones back in their place, newest first like the list (the
     -- history rows are shared until data changes, so a new list)
     local shown = rows
-    if #deletedRows > 0 then
+    local ghosts = {}
+    for _, ghost in ipairs(deletedRows) do
+        if ghost.filter == currentFilter then ghosts[#ghosts + 1] = ghost end
+    end
+    if #ghosts > 0 then
         shown = {}
         for _, row in ipairs(rows) do shown[#shown + 1] = row end
-        for _, ghost in ipairs(deletedRows) do shown[#shown + 1] = ghost end
+        for _, ghost in ipairs(ghosts) do shown[#shown + 1] = ghost end
         table.sort(shown, function(a, b) return (a.time or 0) > (b.time or 0) end)
     end
     view.list:SetItems(shown)

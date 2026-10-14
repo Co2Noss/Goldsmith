@@ -409,8 +409,16 @@ local craftedRowCache = addon:NewCache()
 local byOutputID, byOutputIDVersion
 local CraftedTierRowUncached
 
+-- making[itemID] = the work coroutine costing it (true outside work). A
+-- guard left by a coroutine an error killed doesn't count, or one error
+-- would turn the item's crafted price off until /reload.
+local function Making(itemID)
+    local m = making[itemID]
+    return m and (m == true or coroutine.status(m) ~= "dead")
+end
+
 function addon:CraftedTierRow(itemID, name)
-    if not itemID or making[itemID] then return nil end
+    if not itemID or Making(itemID) then return nil end
     local store = craftedRowCache:Get()
     local hit = store[itemID]
     if hit == nil then
@@ -445,10 +453,20 @@ CraftedTierRowUncached = function(itemID, name)
         if out.itemID == itemID then tier = t end
     end
     if not tier then return nil end
-    making[itemID] = true
-    -- No pcall here: work spread over frames may pause inside (WithCharacter
-    -- handles both cases)
-    local rows = addon:WithCharacter(key, addon.GetTierRows, addon, recipe)
+    -- No pcall inside work: work spread over frames may pause inside
+    -- (WithCharacter handles both cases); an error there ends the coroutine,
+    -- which Making() then ignores
+    local co = coroutine.running()
+    making[itemID] = co or true
+    local rows
+    if co then
+        rows = addon:WithCharacter(key, addon.GetTierRows, addon, recipe)
+    else
+        local ok, result = pcall(addon.WithCharacter, addon, key, addon.GetTierRows, addon, recipe)
+        making[itemID] = nil
+        if not ok then error(result, 0) end
+        rows = result
+    end
     making[itemID] = nil
     local row
     for _, r in ipairs(rows or {}) do

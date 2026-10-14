@@ -187,7 +187,9 @@ local function Status(entry)
             next = (entry.chargeSeconds and charges < entry.maxCharges) and (next + entry.chargeSeconds) or nil
         end
         if charges >= entry.maxCharges then next = nil end
-        return charges > 0, charges > 0 and nil or next, charges
+        -- (an if: "charges > 0 and nil or next" is always next)
+        if charges > 0 then return true, nil, charges end
+        return false, next, charges
     end
     local ready = not entry.readyAt or now >= entry.readyAt
     return ready, not ready and entry.readyAt or nil, ready and 1 or 0
