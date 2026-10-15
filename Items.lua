@@ -683,8 +683,13 @@ local function CreatePage(parent)
         end
         t[2].tooltip = function(tooltip)
             tooltip:AddLine("Usual price", 1, 1, 1)
-            addon:Explain(tooltip, "The middle of the prices saved each day Auctionator scans, not counting today.", 0.6, 0.6, 0.6, true)
-            if insight then
+            if insight and insight.regional then
+                addon:Explain(tooltip, string.format("Goldsmith Data's price for your region over the last 7 days, until you have %d days of your own (%d so far).",
+                    5, d.historyDays or 0), 0.6, 0.6, 0.6, true)
+            else
+                addon:Explain(tooltip, "The middle of the prices saved each day Auctionator scans, not counting today.", 0.6, 0.6, 0.6, true)
+            end
+            if insight and not insight.regional then
                 tooltip:AddDoubleLine("Lowest", Money(insight.low), 0.8, 0.8, 0.8, 1, 1, 1)
                 tooltip:AddDoubleLine("Highest", Money(insight.high), 0.8, 0.8, 0.8, 1, 1, 1)
                 tooltip:AddDoubleLine("Days of prices", tostring(insight.days), 0.8, 0.8, 0.8, 1, 1, 1)

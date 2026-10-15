@@ -216,7 +216,7 @@ local UNDERCUT_RATIO = 0.6
 -- commodities only, so no gear. It loads at login or /reload. Used when neither
 -- Auctionator nor TSM has a price for the item, or when Auctionator's price
 -- is a day or more old and this data is newer (not with TSM installed).
---   GoldsmithPriceData.items[itemID] = { min, market, median, quantity, sells }
+--   GoldsmithPriceData.items[itemID] = { min, market, median, quantity, sells, sold, usual }
 -- (copper; market = average of the cheapest 15% of units listed; sells =
 -- the sell level, see GetSellLevel)
 -- How well an item sells across the region, from Goldsmith Data's last week
@@ -2645,7 +2645,8 @@ local function AddTooltipLines(tooltip, data)
         local r, g, b = 0.8, 0.8, 0.8
         if pct <= -15 then r, g, b = 0.3, 1, 0.3 elseif pct >= 15 then r, g, b = 1, 0.6, 0.2 end
         tooltip:AddDoubleLine("|cFF00FF00Goldsmith|r vs usual price",
-            string.format("%+.0f%% (usual %s, %d days)", pct, FormatGold(insight.usual), insight.days),
+            string.format("%+.0f%% (usual %s, %s)", pct, FormatGold(insight.usual),
+                insight.regional and "region, 7 days" or (insight.days .. " days")),
             1, 1, 1, r, g, b)
     end
     if short then return end

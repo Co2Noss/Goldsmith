@@ -176,13 +176,31 @@ end
 --
 -- Today's price compared with the item's usual price: the median of its
 -- saved daily prices, not counting today. Needs INSIGHT_MIN_DAYS days of
--- history first. Returns { now, usual, diff (-0.18 = 18% below usual),
--- days, low, high } or nil, plus the number of days of history.
+-- history first. Until then, Goldsmith Data's usual price for the region
+-- (its last 7 days, same price rule), so a fresh install has Cheap
+-- materials on day one instead of "needs 5 days" (user's laptop,
+-- 2026-10-15). Returns { now, usual, diff (-0.18 = 18% below usual),
+-- days, low, high } or nil, plus the number of days of your own history.
+-- A regional one has regional = true and no days, low or high.
 local INSIGHT_MIN_DAYS = 5
+
+-- Goldsmith Data's usual price (7th number), or nil
+local function RegionalUsual(itemID)
+    local data = GoldsmithPriceData
+    local entry = data and data.items and data.items[itemID]
+    return entry and entry[7]
+end
+
+local function RegionalInsight(itemID, ownDays)
+    local usual = RegionalUsual(itemID)
+    local now = usual and addon:GetMarketPrice(itemID)
+    if not now or usual <= 0 then return nil, ownDays end
+    return { now = now, usual = usual, diff = (now - usual) / usual, regional = true }, ownDays
+end
 
 function addon:GetPriceInsight(itemID)
     local days = GoldsmithDB.priceHistory[itemID]
-    if not days then return nil, 0 end
+    if not days then return RegionalInsight(itemID, 0) end
     local today = date("%Y-%m-%d")
     local prices = {}
     for day, price in pairs(days) do
@@ -190,7 +208,7 @@ function addon:GetPriceInsight(itemID)
             table.insert(prices, price)
         end
     end
-    if #prices < INSIGHT_MIN_DAYS then return nil, #prices end
+    if #prices < INSIGHT_MIN_DAYS then return RegionalInsight(itemID, #prices) end
     table.sort(prices)
     local mid = math.floor(#prices / 2)
     local usual = (#prices % 2 == 1) and prices[mid + 1] or (prices[mid] + prices[mid + 1]) / 2

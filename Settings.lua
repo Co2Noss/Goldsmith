@@ -577,7 +577,7 @@ local HELP = {
     dealPercent = {
         "Cheap materials",
         "How far below its usual price a material has to be for the Overview's Cheap materials today.",
-        "The usual price is the middle of the prices saved each day Auctionator scans, so it needs a few days of history.",
+        "The usual price is the middle of the prices saved each day. Until you have 5 days of them, it's Goldsmith Data's price for your region over the last 7 days.",
     },
     heldDays = {
         "Held too long",
