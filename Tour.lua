@@ -655,7 +655,18 @@ UpdateDim = function()
     Place(dims[4], hr, hb, wr, ht) -- right
 end
 
+-- Settings, Help, Support and the bug report sit over the window: closed
+-- for the tour, however it started (a friend's tour ran under Help)
+local POPUPS = { "GoldsmithSettings", "GoldsmithHelp", "GoldsmithSupport", "GoldsmithReport" }
+local function ClosePopups()
+    for _, name in ipairs(POPUPS) do
+        local popup = _G[name]
+        if popup and popup:IsShown() then popup:Hide() end
+    end
+end
+
 local function UpdateShield()
+    ClosePopups()
     UpdateDim()
     if not (shields and addon.window and addon.window:IsShown()) then return end
     local wl, wb, wr, wt = Edges(addon.window)
@@ -850,6 +861,7 @@ function addon:StartTour()
     scrolled, noPick, pickTier, wrongPick = {}, {}, nil, nil
     pickConc, pickTaken = nil, nil
     if addon.window and not addon.window:IsShown() then addon.window:Show() end
+    ClosePopups()
     UseSampleData(function()
         addon:ShowTab("overview")
         C_Timer.After(0, function() addon:TourStep(1) end)
