@@ -447,7 +447,7 @@ local STEPS = {
           local view = Screen("crafts")
           return view and view.list
       end,
-      text = "With Auctionator, this sends everything you need to buy to a shopping list on the AH's Shopping tab. Items come off it as you buy them.",
+      text = "With Auctionator, this sends everything you need to buy to a shopping list on the AH's Shopping tab. Items come off it as you buy them. Profession Shopping List is an alternative: it tracks the recipes and shows the reagents.",
       target = function()
           local view = Screen("crafts")
           return view and view.plan.shop
