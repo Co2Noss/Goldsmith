@@ -348,7 +348,7 @@ end
 -- (what to click) and clickTarget (where).
 local STEPS = {
     { tab = "overview", title = "Filters",
-      text = "Pick one profession or all of them, the dates for profits and charts, and which expansions' items to show. They apply on every tab.",
+      text = "Each step lights up the part of the window it's about, outlined in gold. Here: pick one profession or all of them, the dates for profits and charts, and which expansions' items to show. They apply on every tab.",
       target = function() return Part("filters")[1], Part("filters")[2] end },
     { tab = "overview", title = "What clicks do",
       text = "This line always says what clicking does on the screen you're on: click, right-click, Shift-click. Hovers end with the same colored hints.",
@@ -490,21 +490,33 @@ local TAB_NAMES = {
 
 local BOX_WIDTH = 340
 local box, highlight
+local UpdateDim -- below, with the shield
 local current -- step number, or nil when no tour is running
 local waiting -- the tab the current step waits for, if any
 
+-- A player's first tour (2026-10-15): the box was grey on the window's
+-- grey, and they never noticed the gold outline, so they got lost and
+-- closed it. Now the rest of the window is dimmed (see UpdateDim), the
+-- outline is thicker with a gold wash, and the box has a heavier border.
+local HIGHLIGHT_EDGE = 3
+local BOX_EDGE = 2
+
 local function CreateFrames()
+    local texture = addon.theme.texture
     highlight = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     highlight:SetFrameStrata("FULLSCREEN_DIALOG")
-    highlight:SetBackdrop({ edgeFile = addon.theme.texture, edgeSize = 2 })
-    highlight:SetBackdropBorderColor(addon:Color("gold"))
+    highlight:SetFrameLevel(10)
+    highlight:SetBackdrop({ bgFile = texture, edgeFile = texture, edgeSize = HIGHLIGHT_EDGE })
+    local r, g, b = addon:Color("gold")
+    highlight:SetBackdropColor(r, g, b, 0.08)
+    highlight:SetBackdropBorderColor(r, g, b, 1)
     highlight:EnableMouse(false)
     local pulse = highlight:CreateAnimationGroup()
     pulse:SetLooping("BOUNCE")
     local fade = pulse:CreateAnimation("Alpha")
     fade:SetFromAlpha(1)
-    fade:SetToAlpha(0.35)
-    fade:SetDuration(0.7)
+    fade:SetToAlpha(0.45)
+    fade:SetDuration(0.6)
     highlight.pulse = pulse
 
     box = CreateFrame("Frame", "GoldsmithTour", UIParent, "BackdropTemplate")
@@ -513,9 +525,11 @@ local function CreateFrames()
     box:SetWidth(BOX_WIDTH)
     box:SetClampedToScreen(true)
     box:EnableMouse(true)
-    UI.Style(box, "dialog", "gold")
+    box:SetBackdrop({ bgFile = texture, edgeFile = texture, edgeSize = BOX_EDGE })
+    box:SetBackdropColor(addon:Color("dialog"))
+    box:SetBackdropBorderColor(r, g, b, 1)
 
-    box.title = UI.Text(box, "heading")
+    box.title = UI.Text(box, "heading", "gold")
     box.title:SetPoint("TOPLEFT", 14, -12)
     box.count = UI.Text(box, "label", "dim", "RIGHT")
     box.count:SetPoint("TOPRIGHT", -36, -14)
@@ -535,7 +549,7 @@ local function CreateFrames()
     box.ask:SetWordWrap(true)
 
     -- Above the buttons, on every step
-    box.note = UI.Text(box, "label", "dim")
+    box.note = UI.Text(box, "label", "muted")
     box.note:SetPoint("BOTTOMLEFT", 14, 12 + 24 + 8)
     box.note:SetWidth(BOX_WIDTH - 28)
     box.note:SetWordWrap(true)
@@ -576,8 +590,9 @@ local function Show(first, last)
     FitBox()
     PlaceBox(first)
     box:Show()
-    -- Again once drawn, in case the font measured differently before
-    C_Timer.After(0, function() if box:IsShown() then FitBox() end end)
+    -- Again once drawn, in case the font measured differently before (and
+    -- the dimming, once the highlight has its new size)
+    C_Timer.After(0, function() if box:IsShown() then FitBox() UpdateDim() end end)
 end
 
 -- The tour is on rails (user, 2026-10-13: clicking around, e.g. a Do this
@@ -604,7 +619,44 @@ local function Place(frame, left, bottom, right, top)
     frame:Show()
 end
 
+-- Everything in the window but the highlighted part is dimmed, so the
+-- eye goes to it. Four dark frames around the highlight, under it and the
+-- box, that let the mouse through (the shield does the blocking). Kept in
+-- place with the shield, as the highlighted row can move.
+local DIM_ALPHA = 0.6
+local dims
+
+UpdateDim = function()
+    if not (addon.window and addon.window:IsShown() and highlight and highlight:IsShown()) then
+        if dims then for _, f in ipairs(dims) do f:Hide() end end
+        return
+    end
+    if not dims then
+        dims = {}
+        for i = 1, 4 do
+            local f = CreateFrame("Frame", nil, UIParent)
+            f:SetFrameStrata("FULLSCREEN_DIALOG")
+            f:SetFrameLevel(highlight:GetFrameLevel() - 2)
+            f:EnableMouse(false)
+            local t = f:CreateTexture(nil, "BACKGROUND")
+            t:SetAllPoints()
+            t:SetColorTexture(0, 0, 0, DIM_ALPHA)
+            dims[i] = f
+        end
+    end
+    local wl, wb, wr, wt = Edges(addon.window)
+    local hl, hb, hr, ht = Edges(highlight)
+    if not (wl and hl) then return end
+    hl, hr = math.max(hl, wl), math.min(hr, wr)
+    hb, ht = math.max(hb, wb), math.min(ht, wt)
+    Place(dims[1], wl, ht, wr, wt) -- above
+    Place(dims[2], wl, wb, wr, hb) -- below
+    Place(dims[3], wl, hb, hl, ht) -- left
+    Place(dims[4], hr, hb, wr, ht) -- right
+end
+
 local function UpdateShield()
+    UpdateDim()
     if not (shields and addon.window and addon.window:IsShown()) then return end
     local wl, wb, wr, wt = Edges(addon.window)
     if not wl then return end
@@ -670,6 +722,7 @@ local function DropShield()
         for _, f in ipairs(shields) do f:Hide() end
         closer:Hide()
     end
+    if dims then for _, f in ipairs(dims) do f:Hide() end end
 end
 
 -- Shows step n. On another tab: point at that tab and wait for the click
