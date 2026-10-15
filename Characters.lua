@@ -309,6 +309,24 @@ local function SnapshotStock()
     end
 end
 
+-- Stock is only counted for items in saved recipes, so a recipe saved after
+-- login (opening a profession on a fresh install) needs a new count: without
+-- it Gold in stock said "nothing tracked in your bags yet" until a bag
+-- changed or a relog (user's laptop, 2026-10-15). Waits for a burst of
+-- saves (a profession's whole scan) to finish, then counts once.
+local STOCK_RECOUNT_DELAY = 3
+local recountTimer
+
+function addon:RecountStockSoon()
+    if recountTimer then recountTimer:Cancel() end
+    recountTimer = C_Timer.NewTimer(STOCK_RECOUNT_DELAY, function()
+        recountTimer = nil
+        SnapshotStock()
+        addon:DataChanged()
+        if addon.Refresh then addon.Refresh() end
+    end)
+end
+
 -- An item's stock across the account, leaving out characters excluded in
 -- Settings. Returns the total and a list of { key, name, count } (the
 -- warband bank has key "warband"), largest first.

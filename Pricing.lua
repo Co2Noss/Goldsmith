@@ -1155,6 +1155,10 @@ local function SaveRecipe(recipeID, quiet, attempt, profession, unlearned)
     if isNew and not quiet then
         addon:Notify("info", "Saved recipe: %s", outputName)
     end
+    if isNew then
+        -- Its materials and output can be counted in stock now
+        addon:RecountStockSoon()
+    end
     if isNew and addon.Refresh then
         addon.Refresh()
     end

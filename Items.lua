@@ -1101,7 +1101,9 @@ local function Refresh(v, state)
         SortItems(items, "stock")
         local sort = GetSort("stock")
         v.list:SetSort(sort.key, sort.descending)
-        v.list:SetEmptyText(search ~= "" and "Nothing you hold matches." or "Nothing tracked in your bags yet.")
+        v.list:SetEmptyText(search ~= "" and "Nothing you hold matches."
+            or next(GoldsmithDB.recipes) == nil and "Nothing tracked yet. Open each of your professions once so Goldsmith knows your materials."
+            or "Nothing tracked in your bags yet.")
         v.list:SetColumnsAndItems(addon:AvailableColumns(STOCK_COLUMNS), items)
         v.footer:SetText(string.format("%s in %s, %s and the warband bank", Money(value), Plural(#items, "item"),
             WhoCounts()))
