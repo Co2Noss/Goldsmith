@@ -151,7 +151,7 @@ end
 local REGIONS = { "US", "KR", "EU", "TW", "CN" }
 
 -- Addons that change what Goldsmith does, with their versions
-local KEY_ADDONS = { "GoldsmithData", "Auctionator", "TradeSkillMaster", "TradeSkillMaster_AppHelper", "BugGrabber", "BugSack" }
+local KEY_ADDONS = { "GoldsmithData", "Auctionator", "ProfessionShoppingList", "TradeSkillMaster", "TradeSkillMaster_AppHelper", "BugGrabber", "BugSack" }
 
 local function Ago(t)
     if not t then return "never" end
@@ -226,6 +226,9 @@ function addon:BuildBugReport()
     Add("Prices: source setting %s; Auctionator %s, last scan %s; TSM %s",
         addon:Setting("priceSource"), addon:HasAuctionator() and "yes" or "no",
         Ago(addon:HasAuctionator() and GoldsmithDB.lastPriceUpdate or nil), addon:HasTSM() and "yes" or "no")
+    Add("Shopping list: setting %s; Auctionator %s; Profession Shopping List %s",
+        addon:Setting("shoppingList"), addon:HasAuctionator() and "yes" or "no",
+        addon:HasProfessionShoppingList() and "yes" or "no")
 
     -- Other addons
     local versions = {}

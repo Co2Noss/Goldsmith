@@ -135,7 +135,7 @@ TAB_PARTS.crafts = function(list)
             "What it all costs, what it sells for and the profit, worked out from your own crafting stats. Hover a number for how.",
             plan.shop:GetParent())
         Add(list, "Shopping list",
-            "With Auctionator, sends everything you need to buy to its Shopping tab at the AH. Items come off it as you buy them.",
+            "With Auctionator, sends everything you need to buy to its Shopping tab at the AH. Items come off it as you buy them. Profession Shopping List is an alternative: it tracks the recipes and shows the reagents.",
             plan.shop)
         Add(list, "Craft", "Crafts it from here: one click per craft.", plan.craft)
         Add(list, "Add to queue",
@@ -170,7 +170,7 @@ TAB_PARTS.queue = function(list)
     Add(list, "Whose queue", "Each character has their own queue. Switch between them here.", view.who)
     Add(list, "Queue", "Crafts lined up to make, added from a plan or by right-clicking a craft.", view.list)
     Add(list, "Shopping list",
-        "With Auctionator, one shopping list for everything in this character's queue (the one picked in Whose queue). Items come off it as you buy them.",
+        "With Auctionator, one shopping list for everything in this character's queue (the one picked in Whose queue). Items come off it as you buy them. Profession Shopping List tracks the recipes instead.",
         view.shop)
     Add(list, "Craft next", "Does the next step of the queue: one click per craft.", view.craft)
 end

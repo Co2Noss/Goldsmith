@@ -254,11 +254,11 @@ local function Create(parent)
     view.spendLine = SummaryLine(28)
     view.vendorLine = SummaryLine(10)
 
-    view.shop = UI.Button(summary, "Send to Auctionator", 170, 28, function()
+    view.shop = UI.Button(summary, addon:ShoppingListButtonLabel(), 170, 28, function()
         if not view.q then return end
-        local ok, result = addon:SendShoppingList(view.q)
+        local ok, result = addon:SendPlanShoppingList(view.q)
         if ok then
-            print("|cFF00FF00[Goldsmith]|r Shopping list \"" .. result .. "\" sent to Auctionator's Shopping tab.")
+            print("|cFF00FF00[Goldsmith]|r " .. addon:ShoppingListSentText(result))
             addon.RefreshWindow()
         else
             print("|cFF00FF00[Goldsmith]|r Couldn't create the shopping list: " .. result)
@@ -266,13 +266,7 @@ local function Create(parent)
     end)
     view.shop:SetPoint("BOTTOMRIGHT", -14, 12)
     UI.SetTooltip(view.shop, function(tooltip)
-        tooltip:AddLine("Send to Auctionator", 1, 1, 1)
-        -- Without Auctionator the button is greyed out; the hover says
-        -- what it would do (user, 2026-10-09: encourage Auctionator)
-        if not addon:HasAuctionator() then
-            addon:AuctionatorPitch(tooltip)
-            return
-        end
+        if not addon:ShoppingListTooltip(tooltip, view.q) then return end
         tooltip:AddLine("One shopping list for everything in the queue. Items come off it as you buy them, and it's deleted once everything's bought.",
             0.8, 0.8, 0.8, true)
         local q = view.q
@@ -406,9 +400,7 @@ local function Refresh(v)
         v.vendorLine:SetText("")
     end
 
-    local canSend = #q.buyAH > 0 and addon:HasAuctionator()
-    v.shop:SetEnabled(canSend)
-    v.shop:SetAlpha(canSend and 1 or 0.5)
+    addon:UpdateShoppingListButton(v.shop, q)
     v.warnings = not empty and Warnings(q) or nil
     v.warnLine:SetText(v.warnings and v.warnings.text or "")
 

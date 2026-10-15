@@ -6,6 +6,8 @@ local UI = addon.UI
 -- Few settings, strong defaults. Saved for the account in
 -- GoldsmithDB.settings; anything not set uses its default:
 --   priceSource - "auto" (whichever is newer), "auctionator" or "tsm"
+--   shoppingList - "auto" (Auctionator if loaded, else Profession
+--                  Shopping List), "auctionator" or "psl"
 --   minROI      - ROI (%) a craft needs to count as worth crafting
 --   minLine     - gold a suggested batch must make in all to be a to-do
 --                 (user, 2026-10-12: Cooking filled the list with
@@ -26,6 +28,7 @@ local UI = addon.UI
 
 local DEFAULTS = {
     priceSource = "auto",
+    shoppingList = "auto",
     minROI = 15,
     minLine = 10,
     dealPercent = 10,
@@ -503,6 +506,11 @@ local CHOICES = {
         { value = "auctionator", label = "Prefer Auctionator" },
         { value = "tsm", label = "Prefer TSM" },
     },
+    shoppingList = {
+        { value = "auto", label = "Automatic (recommended)" },
+        { value = "auctionator", label = "Auctionator" },
+        { value = "psl", label = "Profession Shopping List" },
+    },
     minROI = {},
     minLine = {},
     dealPercent = {},
@@ -562,6 +570,13 @@ local HELP = {
         "Prefer Auctionator: Auctionator's last scan even if it's days old, TSM only for items it hasn't seen.",
         "Prefer TSM: TSM's price, Auctionator only for items TSM has no price for. Live AH searches are ignored.",
         "Either way, a listing far below or above the usual price is replaced by TSM's market value when TSM is installed.",
+    },
+    shoppingList = {
+        "Shopping list",
+        "Automatic: Auctionator when it's installed, otherwise Profession Shopping List.",
+        "Auctionator: a list on the AH's Shopping tab. Items come off it as you buy them.",
+        "Profession Shopping List: tracks the recipes. It shows the reagents you still need and takes a recipe off once you craft it. It doesn't track milling, prospecting or crushing, and it doesn't set prices.",
+        "This choice only shows when both addons are installed. With one of them, Send uses that one.",
     },
     minROI = {
         "Worth crafting at",
@@ -712,7 +727,7 @@ local function SetKeepDays(value, panel)
 end
 
 local COLUMNS = {
-    { title = "Crafting and prices", rows = { "priceSource", "minROI", "minLine", "dealPercent", "heldDays", "ignored", "keepDays" } },
+    { title = "Crafting and prices", rows = { "priceSource", "shoppingList", "minROI", "minLine", "dealPercent", "heldDays", "ignored", "keepDays" } },
     { title = "Display", rows = { "tooltips", "chat", "characters", "showMinimap", "keybind" } },
 }
 
@@ -745,6 +760,7 @@ function addon:CreateSettingsPanel(parent)
     local rows = {}
 
     rows.priceSource = ChoiceRow(panel, "priceSource", "Price source", "Where AH prices come from when both Auctionator and TSM have one.")
+    rows.shoppingList = ChoiceRow(panel, "shoppingList", "Shopping list", "Where Send puts a plan or the Queue when both shopping addons are installed.")
     rows.minROI = ChoiceRow(panel, "minROI", "Worth crafting at", "The ROI a craft needs for Recommended and Best crafts.")
     rows.minLine = ChoiceRow(panel, "minLine", "Worth a to-do at", "The gold a suggested batch must make in all.")
     rows.dealPercent = ChoiceRow(panel, "dealPercent", "Cheap materials", "How far below usual a material's price counts as cheap.")
@@ -862,6 +878,8 @@ function addon:CreateSettingsPanel(parent)
         -- Price source only matters with both price addons installed. Laid
         -- out here rather than once: TSM can finish loading after Goldsmith.
         rows.priceSource:SetShown(addon:HasAuctionator() and addon:HasTSM() and true or false)
+        -- Same for the shopping list: the choice only matters with both.
+        rows.shoppingList:SetShown(addon:HasAuctionator() and addon:HasProfessionShoppingList() and true or false)
         local lowest = ROWS_TOP
         for i, column in ipairs(COLUMNS) do
             local top = ROWS_TOP
@@ -911,7 +929,9 @@ local HELP_SECTIONS = {
     { "Item tooltips",
       "Show your cost, profit and break-even price. Hold Shift for each material's cost. Settings > Item tooltips makes them shorter or turns them off." },
     { "Recommended: Auctionator",
-      "Goldsmith works without it: Goldsmith Data brings the region's AH prices, refreshed with each daily update, and how well each item sells. Auctionator adds two things. Its scans give live prices for the moment you buy and sell. And its Shopping tab is where Goldsmith's shopping lists go: Send to Auctionator in a plan or the Queue makes a list there, and Auctionator searches the AH for every item on it. The game's own AH has no shopping lists." },
+      "Goldsmith works without it: Goldsmith Data brings the region's AH prices, refreshed with each daily update, and how well each item sells. Auctionator adds two things. Its scans give live prices for the moment you buy and sell. And its Shopping tab is one place Goldsmith's shopping lists can go: Send in a plan or the Queue makes a list there, and Auctionator searches the AH for every item on it. The game's own AH has no shopping lists." },
+    { "Alternative: Profession Shopping List",
+      "Optional, and free on CurseForge. Send on a plan or the Queue tracks those recipes in Profession Shopping List. It shows the reagents you still need and takes a recipe off once you craft it. It doesn't scan the AH, so prices still come from Goldsmith Data, and it doesn't track milling, prospecting or crushing. With both addons installed, Settings > Shopping list chooses which Send uses. Automatic uses Auctionator." },
     { "If you already use TSM",
       "Not needed: Goldsmith Data covers prices and how well each item sells (Sells / Slow / Hardly sells). If TSM and its desktop app are installed anyway, Goldsmith uses TSM's region sales per day and sale rates instead, a check on listings far from the usual price, and prices between Auctionator scans." },
     { "Commands",

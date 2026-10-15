@@ -8,11 +8,12 @@ local UI = addon.UI
 -- queue") or by right-clicking a craft on the Crafts tab. Salvage goes in
 -- as batches ("prospect 1,000 Umbral Tin Ore"): right-click a salvage row.
 -- The queue is planned as a whole: each entry uses what's left of your
--- materials after the ones above it, and one Auctionator list covers
--- everything to buy. Then "Craft next" (the Queue tab, a panel by the
--- profession window, or a key) does one step per press: mill, make the
--- materials, then the craft, going through the queue in order, starting
--- with the profession that's open. A craft leaves the queue once enough are
+-- materials after the ones above it, and one shopping list covers
+-- everything to buy (Auctionator, or Profession Shopping List). Then
+-- "Craft next" (the Queue tab, a panel by the profession window, or a
+-- key) does one step per press: mill, make the materials, then the craft,
+-- going through the queue in order, starting with the profession that's
+-- open. A craft leaves the queue once enough are
 -- made (counted from craft results, so multicraft extras count); a batch
 -- once that many items are salvaged.
 --

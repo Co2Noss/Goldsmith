@@ -276,11 +276,12 @@ function addon:AddItemDescription(tooltip, itemID)
     end
 end
 
--- What Auctionator would add, on Goldsmith's Send to Auctionator buttons
--- while it isn't installed or turned on (they're greyed out then)
+-- What a shopping addon would add, on Goldsmith's Send buttons while
+-- neither Auctionator nor Profession Shopping List is loaded (they're
+-- greyed out then)
 function addon:AuctionatorPitch(tooltip)
-    tooltip:AddLine("Needs the Auctionator addon (free on CurseForge).", 1, 0.82, 0, true)
-    tooltip:AddLine("With it, this makes a shopping list on the AH that crosses items off as you buy them, and one scan refreshes every price in Goldsmith.",
+    tooltip:AddLine("Needs Auctionator or Profession Shopping List (both free on CurseForge).", 1, 0.82, 0, true)
+    tooltip:AddLine("Auctionator makes a shopping list on the AH that crosses items off as you buy them, and one scan refreshes every price. Profession Shopping List tracks the recipes and shows the reagents you still need. Prices come from Goldsmith Data either way.",
         0.8, 0.8, 0.8, true)
 end
 

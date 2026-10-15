@@ -1841,11 +1841,11 @@ local function CreatePlanScreen(parent)
     screen.spendLine = SummaryLine(28)
     screen.vendorLine = SummaryLine(10)
 
-    screen.shop = UI.Button(summary, "Send to Auctionator", 170, 28, function()
+    screen.shop = UI.Button(summary, addon:ShoppingListButtonLabel(), 170, 28, function()
         if not screen.current then return end
-        local ok, result = addon:SendShoppingList(screen.current)
+        local ok, result = addon:SendPlanShoppingList(screen.current)
         if ok then
-            print("|cFF00FF00[Goldsmith]|r Shopping list \"" .. result .. "\" sent to Auctionator's Shopping tab.")
+            print("|cFF00FF00[Goldsmith]|r " .. addon:ShoppingListSentText(result))
             screen:Update()
         else
             print("|cFF00FF00[Goldsmith]|r Couldn't create the shopping list: " .. result)
@@ -1853,13 +1853,10 @@ local function CreatePlanScreen(parent)
     end)
     screen.shop:SetPoint("BOTTOMRIGHT", -14, 12)
     UI.SetTooltip(screen.shop, function(tooltip)
-        tooltip:AddLine("Send to Auctionator", 1, 1, 1)
-        -- Without Auctionator the button is greyed out; the hover says
-        -- what it would do (user, 2026-10-09: encourage Auctionator)
-        if not addon:HasAuctionator() then
-            addon:AuctionatorPitch(tooltip)
-            return
-        end
+        -- Neither shopping addon: the hover says what one would add
+        -- (user, 2026-10-09: encourage Auctionator). Profession Shopping
+        -- List is the alternative, and its hover is complete on its own.
+        if not addon:ShoppingListTooltip(tooltip, screen.current) then return end
         tooltip:AddLine("Makes a shopping list of what to buy. Items come off it as you buy them, and it's deleted once everything's bought.",
             0.8, 0.8, 0.8, true)
         local w = screen.warnings
@@ -1979,8 +1976,7 @@ local function CreatePlanScreen(parent)
         screen.warnings = nil
         screen.spendLine:SetText("")
         screen.vendorLine:SetText("")
-        screen.shop:Disable()
-        screen.shop:SetAlpha(0.5)
+        addon:UpdateShoppingListButton(screen.shop, nil)
         SetCraftState(nil)
     end
 
@@ -2212,9 +2208,7 @@ local function CreatePlanScreen(parent)
             screen.vendorLine:SetText("")
         end
 
-        local canSend = #plan.buyAH > 0 and addon:HasAuctionator()
-        screen.shop:SetEnabled(canSend)
-        screen.shop:SetAlpha(canSend and 1 or 0.5)
+        addon:UpdateShoppingListButton(screen.shop, plan)
         -- Old prices only matter while there's something to buy
         local warnings = ShoppingWarnings(plan)
         if warnings and #warnings.more == 0 and #warnings.extra == 0 and #plan.buyAH == 0 then
@@ -2412,11 +2406,11 @@ local function CreateSalvageScreen(parent)
     screen.spendLine = SummaryLine(28)
     screen.noteLine = SummaryLine(10)
 
-    screen.shop = UI.Button(summary, "Send to Auctionator", 170, 28, function()
+    screen.shop = UI.Button(summary, addon:ShoppingListButtonLabel(), 170, 28, function()
         if not screen.current then return end
-        local ok, result = addon:SendShoppingList(screen.current)
+        local ok, result = addon:SendPlanShoppingList(screen.current)
         if ok then
-            print("|cFF00FF00[Goldsmith]|r Shopping list \"" .. result .. "\" sent to Auctionator's Shopping tab.")
+            print("|cFF00FF00[Goldsmith]|r " .. addon:ShoppingListSentText(result))
             screen:Update()
         else
             print("|cFF00FF00[Goldsmith]|r Couldn't create the shopping list: " .. result)
@@ -2424,13 +2418,7 @@ local function CreateSalvageScreen(parent)
     end)
     screen.shop:SetPoint("BOTTOMRIGHT", -14, 12)
     UI.SetTooltip(screen.shop, function(tooltip)
-        tooltip:AddLine("Send to Auctionator", 1, 1, 1)
-        -- Without Auctionator the button is greyed out; the hover says
-        -- what it would do (user, 2026-10-09: encourage Auctionator)
-        if not addon:HasAuctionator() then
-            addon:AuctionatorPitch(tooltip)
-            return
-        end
+        if not addon:ShoppingListTooltip(tooltip, screen.current) then return end
         tooltip:AddLine("Makes a shopping list of what to buy. Items come off it as you buy them, and it's deleted once everything's bought.",
             0.8, 0.8, 0.8, true)
     end, "ANCHOR_TOP")
@@ -2474,8 +2462,7 @@ local function CreateSalvageScreen(parent)
         screen.compareLine:SetTextColor(addon:Color("muted"))
         screen.spendLine:SetText("")
         screen.noteLine:SetText("")
-        screen.shop:Disable()
-        screen.shop:SetAlpha(0.5)
+        addon:UpdateShoppingListButton(screen.shop, nil)
         SetAction(nil)
     end
 
@@ -2618,9 +2605,7 @@ local function CreateSalvageScreen(parent)
         local buy = plan.buyAH[1]
         screen.spendLine:SetText(buy and string.format("To buy on the AH: %d %s, about %s", buy.quantity, t.name, Money(buy.cost))
             or "Nothing to buy: you have enough.")
-        local canSend = buy ~= nil and addon:HasAuctionator()
-        screen.shop:SetEnabled(canSend)
-        screen.shop:SetAlpha(canSend and 1 or 0.5)
+        addon:UpdateShoppingListButton(screen.shop, plan)
 
         local profession = t.profession or "Inscription"
         if mine and not ProfessionOpen({ profession = profession }) then
