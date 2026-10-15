@@ -417,7 +417,9 @@ local function DealsAction(prof)
     if #cheap == 0 then return nil end
     local parts = {}
     for i = 1, math.min(#cheap, 3) do
-        table.insert(parts, string.format("%s %s", cheap[i].name,
+        -- With its quality icon: two qualities of one material read as the
+        -- same item twice without it (Void-Tempered Hide, user 2026-10-15)
+        table.insert(parts, string.format("%s %s", ItemText(cheap[i].itemID, cheap[i].name),
             addon:Colorize(string.format("%.0f%%", cheap[i].diff * 100), "profit")))
     end
     return {
@@ -429,7 +431,7 @@ local function DealsAction(prof)
                 addon:Setting("dealPercent")), 0.6, 0.6, 0.6, true)
             for i = 1, math.min(#cheap, 8) do
                 local d = cheap[i]
-                tooltip:AddDoubleLine(d.name, string.format("%.0f%%  %s (usually %s)", d.diff * 100, Money(d.now), Money(d.usual)),
+                tooltip:AddDoubleLine(ItemText(d.itemID, d.name), string.format("%.0f%%  %s (usually %s)", d.diff * 100, Money(d.now), Money(d.usual)),
                     0.9, 0.9, 0.9, 0.37, 0.81, 0.48)
             end
             addon:ClickHint(tooltip, "Click to see them on the Items tab: what you have, what they're used in, price history.")
