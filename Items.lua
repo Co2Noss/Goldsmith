@@ -272,10 +272,17 @@ local function CheapTooltip(tooltip, item)
     tooltip:AddLine(ItemText(item.name, item.itemID), 1, 1, 1)
     addon:AddItemDescription(tooltip, item.itemID)
     tooltip:AddDoubleLine("Price now", Money(item.now), 0.8, 0.8, 0.8, 0.37, 0.81, 0.48)
-    tooltip:AddDoubleLine("Usually", string.format("%s (median of %d days)", Money(item.usual), item.days),
-        0.8, 0.8, 0.8, 1, 1, 1)
-    tooltip:AddDoubleLine("Range", string.format("%s - %s", Money(item.low), Money(item.high)),
-        0.8, 0.8, 0.8, 1, 1, 1)
+    -- Goldsmith Data's usual price (under 5 days of your own) has no days or
+    -- range (Theme.lua error on a fresh install, user 2026-10-15)
+    if item.regional then
+        tooltip:AddDoubleLine("Usually", string.format("%s (region, last 7 days)", Money(item.usual)),
+            0.8, 0.8, 0.8, 1, 1, 1)
+    else
+        tooltip:AddDoubleLine("Usually", string.format("%s (median of %d days)", Money(item.usual), item.days),
+            0.8, 0.8, 0.8, 1, 1, 1)
+        tooltip:AddDoubleLine("Range", string.format("%s - %s", Money(item.low), Money(item.high)),
+            0.8, 0.8, 0.8, 1, 1, 1)
+    end
     tooltip:AddDoubleLine("You have", tostring(item.have), 0.8, 0.8, 0.8, 1, 1, 1)
     if #item.recipes > 0 then
         tooltip:AddLine(" ")
