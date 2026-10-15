@@ -854,13 +854,22 @@ local function SetupSteps()
     -- levels. TSM isn't recommended: its data needs the TSM desktop app from
     -- outside CurseForge, the step players skip (user's guild, 2026-10-10);
     -- it's only mentioned for those who already use it.
+    local hasPSL = addon:HasProfessionShoppingList()
     local auctionatorTip = "Auctionator gives live prices when you scan the AH, and its Shopping tab is where Goldsmith's shopping lists go."
+    if hasPSL then
+        auctionatorTip = auctionatorTip .. " Profession Shopping List is installed, so lists can go there instead."
+    else
+        auctionatorTip = auctionatorTip .. " Profession Shopping List is an alternative for the lists."
+    end
     local tsmTip = "Already use TSM? Goldsmith uses its sales per day and sale rates when it's installed."
     if hasAuctionator and hasTSM then
         table.insert(steps, { true, "Auctionator and TSM found",
-            "Auctionator for live prices and shopping lists, TSM for sales per day and sale rates." })
+            "Auctionator for live prices and shopping lists, TSM for sales per day and sale rates."
+                .. (hasPSL and " Settings > Shopping list can send lists to Profession Shopping List instead." or "") })
     elseif hasAuctionator then
-        table.insert(steps, { true, "Auctionator found", "Using it for live prices and shopping lists." })
+        table.insert(steps, { true, "Auctionator found",
+            hasPSL and "Using it for live prices and shopping lists. Profession Shopping List is also installed; Settings > Shopping list can send lists there."
+                or "Using it for live prices and shopping lists." })
     else
         table.insert(steps, { false, "Recommended: Auctionator",
             "Free, on CurseForge, and optional: Goldsmith works without it. " .. auctionatorTip

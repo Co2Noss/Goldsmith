@@ -789,6 +789,228 @@ function addon:ShoppingListBought(itemID, quantity)
     addon:Notify("info", "Everything on %s is bought; the list is removed from Auctionator.", list.name)
 end
 
+-- Profession Shopping List
+--
+-- An alternative to Auctionator's shopping list. PSL's public API tracks
+-- recipes rather than AH searches (API.lua):
+--   ProfessionShoppingList:TrackRecipe(recipeID, quantity) adds quantity
+--   ProfessionShoppingList:UntrackRecipe(recipeID, quantity) subtracts it
+--     (0 clears that recipe, including any the player tracked themselves)
+-- It lists the reagents still needed and takes a recipe off after a craft.
+-- There is no price API, so Auctionator stays the live-price addon.
+-- Goldsmith remembers what it added (GoldsmithDB.pslTracked) and only
+-- changes that: Send again replaces the last send instead of stacking,
+-- and recipes the player tracked on their own are left alone. Milling,
+-- prospecting and crushing are not recipes PSL will track.
+
+local ignorePSLEvent = false
+
+function addon:HasProfessionShoppingList()
+    local api = ProfessionShoppingList
+    return api and api.TrackRecipe and api.UntrackRecipe and true or false
+end
+
+-- "auto" (the default): Auctionator when it's loaded, else Profession
+-- Shopping List. A set choice is used when that addon is loaded, and the
+-- other one when it isn't.
+function addon:ShoppingListDestination()
+    local prefer = addon:Setting("shoppingList")
+    local auc = addon:HasAuctionator()
+    local psl = addon:HasProfessionShoppingList()
+    if prefer == "psl" then
+        if psl then return "psl" end
+        if auc then return "auctionator" end
+    elseif prefer == "auctionator" then
+        if auc then return "auctionator" end
+        if psl then return "psl" end
+    else
+        if auc then return "auctionator" end
+        if psl then return "psl" end
+    end
+end
+
+-- recipeID and how many crafts, or nil. Salvage isn't a recipe PSL tracks.
+local function TrackableCrafts(plan)
+    if not plan or plan.salvage then return nil end
+    local recipeID = plan.recipe and plan.recipe.recipeID
+    local crafts = plan.crafts
+    if type(recipeID) ~= "number" or recipeID <= 0 then return nil end
+    if type(crafts) ~= "number" or crafts <= 0 then return nil end
+    return recipeID, math.floor(crafts + 0.0001)
+end
+
+-- recipeID -> crafts. A queue sums every craft in it.
+local function RecipesToTrack(plan)
+    local want = {}
+    if plan and plan.rows then
+        for _, row in ipairs(plan.rows) do
+            local id, crafts = TrackableCrafts(row.plan)
+            if id then want[id] = (want[id] or 0) + crafts end
+        end
+        return want
+    end
+    local id, crafts = TrackableCrafts(plan)
+    if id then want[id] = crafts end
+    return want
+end
+
+local function HasSalvageToBuy(plan)
+    if not plan then return false end
+    if plan.salvage then return plan.buyAH and #plan.buyAH > 0 end
+    if plan.rows then
+        for _, row in ipairs(plan.rows) do
+            local p = row.plan
+            if p and p.salvage and p.buyAH and #p.buyAH > 0 then return true end
+        end
+    end
+end
+
+function addon:CanSendShoppingList(plan)
+    if not (plan and plan.buyAH and #plan.buyAH > 0 and addon:ShoppingListDestination()) then
+        return false
+    end
+    if addon:ShoppingListDestination() == "psl" then
+        return next(RecipesToTrack(plan)) ~= nil
+    end
+    return true
+end
+
+function addon:ShoppingListButtonLabel()
+    if addon:ShoppingListDestination() == "psl" then return "Send to PSL" end
+    return "Send to Auctionator"
+end
+
+function addon:UpdateShoppingListButton(button, plan)
+    button:SetLabel(addon:ShoppingListButtonLabel())
+    local can = addon:CanSendShoppingList(plan)
+    button:SetEnabled(can)
+    button:SetAlpha(can and 1 or 0.5)
+end
+
+-- The start of a Send button's hover. False when the hover is complete
+-- (neither addon, or this send goes to Profession Shopping List).
+function addon:ShoppingListTooltip(tooltip, plan)
+    local dest = addon:ShoppingListDestination()
+    if dest == "psl" then
+        tooltip:AddLine("Send to Profession Shopping List", 1, 1, 1)
+        if plan and plan.buyAH and #plan.buyAH > 0 and not next(RecipesToTrack(plan)) then
+            tooltip:AddLine("Profession Shopping List doesn't track milling, prospecting or crushing. Install Auctionator for those lists, or pick it in Settings > Shopping list.",
+                0.8, 0.8, 0.8, true)
+            return false
+        end
+        tooltip:AddLine("Tracks these recipes in Profession Shopping List. It shows the reagents you still need and takes a recipe off once you craft it. Reagent quality is its own setting, not this plan's mix.",
+            0.8, 0.8, 0.8, true)
+        if addon:HasAuctionator() then
+            tooltip:AddLine("Both are installed. Settings > Shopping list chooses which one Send uses.",
+                0.8, 0.8, 0.8, true)
+        end
+        return false
+    end
+    tooltip:AddLine("Send to Auctionator", 1, 1, 1)
+    if not dest then
+        addon:AuctionatorPitch(tooltip)
+        return false
+    end
+    return true
+end
+
+local function AdjustTracked(api, recipeID, have, need)
+    local diff = need - have
+    if diff > 0 then
+        return pcall(api.TrackRecipe, api, recipeID, diff)
+    elseif diff < 0 then
+        return pcall(api.UntrackRecipe, api, recipeID, -diff)
+    end
+    return true
+end
+
+-- Tracks the plan's crafts in Profession Shopping List, replacing what
+-- Goldsmith tracked last time. Returns true and a chat line, or false
+-- and a reason.
+function addon:SendToProfessionShoppingList(plan)
+    local api = ProfessionShoppingList
+    if not (api and api.TrackRecipe and api.UntrackRecipe) then
+        return false, "Profession Shopping List's tracking API isn't available."
+    end
+    local want = RecipesToTrack(plan)
+    if not next(want) then
+        if HasSalvageToBuy(plan) or (plan and plan.salvage) then
+            return false, "Profession Shopping List doesn't track milling, prospecting or crushing."
+        end
+        return false, "Nothing to track in Profession Shopping List for this plan."
+    end
+
+    local tracked = GoldsmithDB.pslTracked or {}
+    ignorePSLEvent = true
+    for id, qty in pairs(tracked) do
+        if not want[id] then
+            local ok, err = AdjustTracked(api, id, qty, 0)
+            if not ok then
+                ignorePSLEvent = false
+                return false, tostring(err)
+            end
+        end
+    end
+    for id, qty in pairs(want) do
+        local ok, err = AdjustTracked(api, id, tracked[id] or 0, qty)
+        if not ok then
+            ignorePSLEvent = false
+            return false, tostring(err)
+        end
+    end
+    ignorePSLEvent = false
+
+    local saved, n = {}, 0
+    for id, qty in pairs(want) do
+        saved[id] = qty
+        n = n + 1
+    end
+    GoldsmithDB.pslTracked = saved
+
+    local text = n == 1 and "Recipe tracked in Profession Shopping List."
+        or string.format("%d recipes tracked in Profession Shopping List.", n)
+    if HasSalvageToBuy(plan) then
+        text = text .. " Milling, prospecting and crushing aren't tracked there; those need Auctionator."
+    end
+    return true, text
+end
+
+function addon:SendPlanShoppingList(plan)
+    local dest = addon:ShoppingListDestination()
+    if dest == "psl" then return addon:SendToProfessionShoppingList(plan) end
+    if dest == "auctionator" then return addon:SendShoppingList(plan) end
+    return false, "Install Auctionator or Profession Shopping List to send a shopping list."
+end
+
+function addon:ShoppingListSentText(result)
+    if addon:ShoppingListDestination() == "psl" then return result end
+    return "Shopping list \"" .. result .. "\" sent to Auctionator's Shopping tab."
+end
+
+-- PSL drops a craft after you make it, and can clear a recipe on its own.
+-- Keep Goldsmith's record inside what PSL still has, so the next Send
+-- doesn't subtract crafts that are already gone.
+local function OnTrackedRecipesChanged(_, recipeID, newQuantity)
+    if ignorePSLEvent then return end
+    local tracked = GoldsmithDB and GoldsmithDB.pslTracked
+    if not tracked then return end
+    if recipeID == nil then
+        for id in pairs(tracked) do tracked[id] = nil end
+        return
+    end
+    local ours = tracked[recipeID]
+    if not ours then return end
+    if type(newQuantity) ~= "number" or newQuantity <= 0 then
+        tracked[recipeID] = nil
+    elseif newQuantity < ours then
+        tracked[recipeID] = newQuantity
+    end
+end
+
+if EventRegistry then
+    EventRegistry:RegisterCallback("ProfessionShoppingList.OnTrackedRecipesChanged", OnTrackedRecipesChanged, addon)
+end
+
 -- Materials you hold, when picking the mix
 --
 -- The tier rows pick a mix on AH prices alone, so with gold 0.04g cheaper
