@@ -342,62 +342,28 @@ local function StopWatching()
     watcher = nil
 end
 
+-- Seven steps along one path: what to do, how to do it, where the rest
+-- is. It was 20 steps of three or four ideas each, and a friend found it
+-- too much to take in (2026-10-15). One idea a step now, and everything
+-- else is in help mode (HelpMode.lua): the last step shows where that is,
+-- so players learn the rest when they're about to use it.
+--
 -- Each step: tab, title, text (shown on the step), target. On another tab,
 -- lead (a short lead-in) shows until the tab is clicked. screen: a screen
 -- inside the tab to open first ("plan", "page"); until then lead, ask
 -- (what to click) and clickTarget (where).
 local STEPS = {
-    { tab = "overview", title = "Filters",
-      text = "Each step lights up the part of the window it's about, outlined in gold. Here: pick one profession or all of them, the dates for profits and charts, and which expansions' items to show. They apply on every tab.",
-      target = function() return Part("filters")[1], Part("filters")[2] end },
-    { tab = "overview", title = "What clicks do",
-      text = "This line always says what clicking does on the screen you're on: click, right-click, Shift-click. Hovers end with the same colored hints.",
-      target = function() return Part("legend") end },
-    { tab = "overview", title = "Prices",
-      text = "Where prices come from right now: Goldsmith Data's daily prices for your region, an Auctionator scan, or TSM. It turns orange when prices are old.",
-      target = function() return Part("price") end },
-    { tab = "overview", title = "How you're doing",
-      text = "Profit on what you've sold, your sales, the gold tied up in stock, and concentration across every character. Hover any number to see how it's worked out.",
-      target = function()
-          local view = Screen("overview")
-          return view and view.tiles[1], view and view.tiles[#view.tiles]
-      end },
     { tab = "overview", title = "Do this next",
-      text = "The best things to do right now (Getting started while you set up): what to craft, with concentration and without. Only solid bets show here, things that sell. Click one to open its plan. Hover \"followed\" by the title to see how the suggestions you crafted did: on target or fell short.",
+      text = "Each step lights up one part of the window. This one is what to do now on the character you're on, best first. Click one to open its plan.",
       target = function()
           local view = Screen("overview")
           return view and view.actionsTitle:GetParent()
       end },
-    { tab = "overview", title = "Charts",
-      text = "Profit by day, total gold, and gold per hour of goldmaking. The arrows switch between them. On Total gold, \"Set a goal\" gives you a gold goal to work toward.",
+    { tab = "overview", title = "Your other characters",
+      text = "Who has the most gold waiting. Click it for every character's to-do list.",
       target = function()
           local view = Screen("overview")
-          return view and view.chartTitle:GetParent()
-      end },
-    { tab = "overview", title = "By profession",
-      text = "Each profession's profit and concentration. Click one to filter everything to it.",
-      target = function()
-          local view = Screen("overview")
-          return view and view.professionsNote:GetParent()
-      end },
-    { tab = "crafts", title = "Crafts",
-      lead = "Next: everything your characters can craft.",
-      text = "Every craft with its cost from your own crafting stats, AH price, profit, and how well it sells. The same cost and profit show in the game's profession window, under the reagents.",
-      target = function()
-          local view = Screen("crafts")
-          return view and view.list
-      end },
-    { tab = "crafts", title = "Show",
-      text = "Recommended (solid bets), All crafts, or Not learned yet: recipes worth going to learn. It can hide gear too.",
-      target = function()
-          local view = Screen("crafts")
-          return view and view.show
-      end },
-    { tab = "crafts", title = "Concentration",
-      text = "On for the tour: crafts show the better quality concentration reaches, and how much gold each point earns (g/conc). After the tour, turn it off to see crafts without it.",
-      target = function()
-          local view = Screen("crafts")
-          return view and view.concSwitch
+          return view and (view.others:IsShown() and view.others or view.actionsPanel)
       end },
     { tab = "crafts", screen = "plan", title = "A craft's plan",
       lead = "Every craft has a plan behind it.",
@@ -407,7 +373,7 @@ local STEPS = {
           local view = Screen("crafts")
           return view and view.list
       end,
-      text = "How many to make, what it costs and what it makes, worked out from your own stats. Add it to the queue, or craft it right here. Back returns to the list.",
+      text = "How many to make, what it costs and what it makes, worked out from your own crafting stats.",
       target = function()
           local view = Screen("crafts")
           return view and view.plan
@@ -420,24 +386,10 @@ local STEPS = {
           local view = Screen("crafts")
           return view and view.list
       end,
-      text = "Each material and where it comes from: your bags, a vendor, the AH, or crafting it first. Right-click one to change that, for example to buy it instead of crafting it.",
+      text = "Where each material comes from: your bags, a vendor, the AH, or crafting it first. Right-click one to change it.",
       target = function()
           local view = Screen("crafts")
           return view and view.plan.list
-      end },
-    { tab = "crafts", screen = "plan", title = "Material qualities",
-      lead = "Every craft has a plan behind it.",
-      ask = "Click the highlighted " .. CRAFT_PICK .. " to open its plan.",
-      askAny = "Click any craft in the list to open its plan.",
-      clickTarget = function()
-          local view = Screen("crafts")
-          return view and view.list
-      end,
-      text = "The mix of material qualities: Goldsmith picks the best one for this quality, and lists the top three to compare. After the tour, click one to use it instead, or click the bar to hide them.",
-      target = function()
-          local view = Screen("crafts")
-          local mixes = view and view.plan.mixes
-          return mixes and mixes:IsShown() and mixes or (view and view.plan)
       end },
     { tab = "crafts", screen = "plan", title = "Shopping list",
       lead = "Every craft has a plan behind it.",
@@ -447,40 +399,18 @@ local STEPS = {
           local view = Screen("crafts")
           return view and view.list
       end,
-      text = "With Auctionator, this sends everything you need to buy to a shopping list on the AH's Shopping tab. Items come off it as you buy them.",
+      text = "With Auctionator, this sends everything you need to buy to its Shopping tab at the AH.",
       target = function()
           local view = Screen("crafts")
           return view and view.plan.shop
       end },
     { tab = "queue", title = "Queue",
       lead = "Next: crafts lined up to make.",
-      text = "Crafts added from any plan or by right-clicking a craft. Each character has their own queue; the menu at the top right switches between them. One shopping list for all of it, and Craft next does the next step: one click per craft.",
+      text = "Add crafts here from any plan. Craft next makes the next one: one click per craft.",
       target = function() return select(2, Screen("queue")) end },
-    { tab = "items", title = "Items",
-      lead = "Next: every item you craft, buy and sell.",
-      text = "Leaderboards: most profit, best margin, fastest sellers, and things held too long. Search any item, or tick In my bags or Cheap materials.",
-      target = function() return select(2, Screen("items")) end },
-    { tab = "items", screen = "page", title = "An item's page",
-      lead = "Every item has a page of its own.",
-      ask = "Click the highlighted " .. ITEM_PICK .. " to open its page.",
-      askAny = "Click any item on a leaderboard to open its page.",
-      clickTarget = function() return select(2, Screen("items")) end,
-      text = "Its break-even price, what yours cost you, what it sells for, a price chart, and everything you've done with it. Back returns to the leaderboards.",
-      target = function()
-          local view = Screen("items")
-          return view and view.page
-      end },
-    { tab = "history", title = "History",
-      lead = "Next: everything Goldsmith has recorded.",
-      text = "Every purchase, sale, craft, crafting order, AH deposit and gathered material, recorded by itself. The choices at the top show one kind. Right-click an entry to fix it, for example to mark a craft as a crafting order.",
-      target = function() return select(2, Screen("history")) end },
-    { tab = "characters", title = "Characters",
-      lead = "Next: all your characters at a glance.",
-      text = "A card per character: professions, concentration, craft cooldowns and a to-do list. Click a to-do to open its plan. Exclude a character you don't play, so its gold, stock and recipes stay out.",
-      target = function() return select(2, Screen("characters")) end },
-    { title = "Settings",
-      text = "Prices, when a craft is worth suggesting, item tooltips, chat messages and characters. Help and Support and feedback are in there too: questions, bug reports and ideas. Hold Ctrl over any hover to see what its numbers mean.\n\nThat's the tour. /gsm tour starts it again.",
-      target = function() return Part("settings") end },
+    { title = "Anything else",
+      text = "Want to know what something is? Click ?, then click that part of the window.\n\nThat's the tour. /gsm tour starts it again.",
+      target = function() return Part("help") end },
 }
 
 local TAB_NAMES = {
@@ -862,6 +792,7 @@ function addon:StartTour()
     pickConc, pickTaken = nil, nil
     if addon.window and not addon.window:IsShown() then addon.window:Show() end
     ClosePopups()
+    if addon.ExitHelpMode then addon:ExitHelpMode() end
     UseSampleData(function()
         addon:ShowTab("overview")
         C_Timer.After(0, function() addon:TourStep(1) end)
@@ -885,7 +816,7 @@ function addon:TourRunning()
 end
 
 StaticPopupDialogs["GOLDSMITH_TOUR"] = {
-    text = "Welcome to Goldsmith!\n\nTake a 2-minute tour of the window?",
+    text = "Welcome to Goldsmith!\n\nTake a 1-minute tour of the window?",
     button1 = "Take the tour",
     button2 = "Not now",
     OnAccept = function() addon:StartTour() end,

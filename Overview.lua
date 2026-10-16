@@ -4,24 +4,36 @@ local UI = addon.UI
 -- Overview tab
 --
 -- "How am I doing, and what should I do now?" Four numbers, a "Do this
--- next" list, a chart you can cycle through, and a row per profession.
--- Everything covers all your characters; the header's profession and date
--- filters apply. The numbers come from Insights.lua and Data.lua.
+-- next" list, a chart you can cycle through, and profit by profession.
+-- The header's profession and date filters apply.
+--
+-- Two kinds of part, and each says which it is (user, 2026-10-15): Do
+-- this next and the Concentration tile are for the character you're on;
+-- profit, sales, stock, the charts and profit by profession are the whole
+-- account. Do this next was every character's best, and a friend testing
+-- it missed that a suggestion was for another character, and thought the
+-- tile's 2000 concentration was all his to spend. Nobody logs out to chase
+-- a suggestion: other characters get one line, most gold waiting first,
+-- that opens the Characters tab (how the user plays: one character at a
+-- time). The numbers come from Insights.lua and Data.lua.
 
 local WIDTH = 860
 local GAP = 12
 local TILE_WIDTH = (WIDTH - 3 * GAP) / 4
 local MIDDLE_TOP = -(76 + GAP)
--- Tall enough for four Do this next cards
-local MIDDLE_HEIGHT = 380
+-- Tall enough for four Do this next cards and the other characters line
+local MIDDLE_HEIGHT = 432
 local HALF_WIDTH = (WIDTH - GAP) / 2
 local BOTTOM_TOP = MIDDLE_TOP - MIDDLE_HEIGHT - GAP
-local BOTTOM_HEIGHT = 116
+local BOTTOM_HEIGHT = 64
 local ACTION_COUNT = 5
 local CRAFTS_SHOWN = 3
 local ACTION_ROW_GAP = 8
 local CRAFTS_LISTED = 5
+local OTHERS_HEIGHT = 30
+local OTHERS_SHOWN = 3
 local PROFESSION_CELLS = 6
+local PROFESSION_LEFT = 190
 
 local CHARTS = {
     { key = "profit", title = "Profit by day" },
@@ -43,6 +55,22 @@ local function HoursText(minutes)
     if minutes < 60 then return string.format("full in %dm", math.ceil(minutes)) end
     if minutes < 48 * 60 then return string.format("full in %dh", math.floor(minutes / 60 + 0.5)) end
     return string.format("full in %.1f days", minutes / 1440)
+end
+
+-- The character you're on
+local function MyName()
+    local c = GoldsmithDB.characters[addon.charKey]
+    return (c and c.name) or UnitName("player") or "you"
+end
+
+-- Only the entries for the character you're on (their key is in `field`,
+-- charKey unless said)
+local function Mine(list, field)
+    local mine = {}
+    for _, entry in ipairs(list) do
+        if entry[field or "charKey"] == addon.charKey then table.insert(mine, entry) end
+    end
+    return mine
 end
 
 -- Character name, only when it isn't you (you're the default)
@@ -68,10 +96,12 @@ end
 -- Tiles
 
 local function FillProfitTile(tile, s)
-    local note = s.margin and string.format("%.0f%% margin", s.margin) or (s.sales > 0 and "cost unknown" or "no sales yet")
+    local note = s.margin and string.format("%.0f%% margin, all characters", s.margin)
+        or (s.sales > 0 and "cost unknown" or "no sales yet")
     tile:Set("Profit on sales", Signed(s.profit), addon:MoneyColor(s.profit), note)
     tile.tooltip = function(tooltip)
         tooltip:AddLine("Profit on sales", 1, 1, 1)
+        tooltip:AddLine("All your characters.", 0.6, 0.6, 0.6)
         tooltip:AddDoubleLine("Sales", Money(s.sales), 0.8, 0.8, 0.8, 1, 1, 1)
         tooltip:AddDoubleLine("What the items sold cost you", "-" .. Money(s.soldCost), 0.8, 0.8, 0.8, 1, 1, 1)
         tooltip:AddDoubleLine("AH deposits", "-" .. Money(s.deposits), 0.8, 0.8, 0.8, 1, 1, 1)
@@ -86,9 +116,10 @@ local function FillProfitTile(tile, s)
 end
 
 local function FillSalesTile(tile, s)
-    tile:Set("Sales", Money(s.sales), "text", "after the AH cut")
+    tile:Set("Sales", Money(s.sales), "text", "after the AH cut, all characters")
     tile.tooltip = function(tooltip)
         tooltip:AddLine("Sales", 1, 1, 1)
+        tooltip:AddLine("All your characters.", 0.6, 0.6, 0.6)
         tooltip:AddDoubleLine("Spent on materials", Money(s.spent), 0.8, 0.8, 0.8, 1, 1, 1)
         addon:Explain(tooltip, "Materials you still hold aren't a loss until they're used or sold.", 0.6, 0.6, 0.6, true)
     end
@@ -137,25 +168,36 @@ local function FillStockTile(tile, stock, prof)
     end
 end
 
+-- The character you're on (each profession's own: they don't add up, so
+-- two read "450 · 800"); every character is in the hover
 local function FillConcentrationTile(tile, conc)
+    local label = "Concentration, " .. MyName()
     if #conc.rows == 0 then
-        tile:Set("Concentration", "-", "muted", "open each profession once to load it")
+        tile:Set(label, "-", "muted", "open each profession once to load it")
         tile.tooltip = nil
         return
     end
+    local mine = Mine(conc.rows, "key")
     -- Crafts worth concentration that were held back (you hold some unsold):
     -- said here too, so "nothing" always comes with why (design review)
-    local heldBack = 0
-    for _, row in ipairs(conc.rows) do heldBack = heldBack + #(row.capped or {}) end
+    local heldBack, gain, amounts = 0, 0, {}
+    for _, row in ipairs(mine) do
+        heldBack = heldBack + #(row.capped or {})
+        gain = gain + (row.gain or 0)
+        table.insert(amounts, #mine == 1 and string.format("%d / %d", row.current, row.max)
+            or tostring(math.floor(row.current)))
+    end
     local note
-    if conc.gain > 0 then
-        note = "worth " .. Signed(conc.gain) .. " extra right now"
+    if #mine == 0 then
+        note = "none on this character (hover for all)"
+    elseif gain > 0 then
+        note = "worth " .. Signed(gain) .. " extra right now"
     elseif heldBack > 0 then
         note = string.format("nothing planned: %d held back (hover)", heldBack)
     else
         note = "nothing worth it right now"
     end
-    tile:Set("Concentration", string.format("%d / %d", conc.current, conc.max), "conc", note)
+    tile:Set(label, #mine > 0 and table.concat(amounts, " · ") or "-", #mine > 0 and "conc" or "muted", note)
     tile.tooltip = function(tooltip)
         -- A table: concentration, when it's full and what it's worth each in
         -- its own column (user, 2026-10-12: the right side was hard to read)
@@ -189,7 +231,9 @@ local function FillConcentrationTile(tile, conc)
                 end
             end
         end
-        UI.TooltipTable(tooltip, "Concentration", { "Now", "Full in", "Extra" }, rows)
+        UI.TooltipTable(tooltip, "Concentration, every character", { "Now", "Full in", "Extra" }, rows)
+        tooltip:AddLine(string.format("The tile shows %s only: concentration can only be spent on the character who has it.",
+            MyName()), 0.6, 0.6, 0.6, true)
         addon:Explain(tooltip, "Extra = profit on top of crafting the same things without concentration.", 0.6, 0.6, 0.6, true)
         addon:Explain(tooltip, "Alts' concentration is worked out from when you last logged in on them.", 0.6, 0.6, 0.6, true)
     end
@@ -250,7 +294,7 @@ end
 -- Cooldown crafts ready now and worth making (GetCooldownCrafts): time
 -- matters, since a cooldown not used is lost, so it goes near the top
 local function CooldownAction(prof)
-    local crafts = addon:GetCooldownCrafts(prof)
+    local crafts = Mine(addon:GetCooldownCrafts(prof))
     if #crafts == 0 then return nil end
     local parts = {}
     for i = 1, math.min(#crafts, CRAFTS_SHOWN) do
@@ -282,7 +326,7 @@ local function CooldownAction(prof)
                     Signed(c.profit * c.crafts * (c.outputPerCraft or 1)), 0.9, 0.9, 0.9, 0.37, 0.81, 0.48)
             end
             tooltip:AddLine(" ")
-            addon:ClickHint(tooltip, "Click to plan the first one. Every character's cooldowns are on the Characters tab.")
+            addon:ClickHint(tooltip, "Click to plan the first one. Your other characters' cooldowns are on the Characters tab.")
         end,
         onClick = function()
             addon:OpenCraftPlan(first.recipe, first.row, first.charKey,
@@ -358,7 +402,7 @@ end
 -- Milling, prospecting and other salvage that's clearly worth it (see
 -- GetBestSalvage in Milling.lua): profit per salvage, best ROI first
 local function SalvageAction(prof)
-    local rows = addon:GetBestSalvage(prof)
+    local rows = Mine(addon:GetBestSalvage(prof))
     if #rows == 0 then return nil end
     local parts = {}
     for i = 1, math.min(#rows, CRAFTS_SHOWN) do
@@ -778,30 +822,43 @@ local function ChartData(key, state)
     end
 end
 
--- By profession
+-- Profit by profession
+--
+-- Which professions make the most, to know where to put your time: a
+-- ranked strip, each with a bar for its share of the best one. Was a row
+-- of cards that filtered the window on click; the user never filtered
+-- with them, only read the ranking, and they took a lot of room (user,
+-- 2026-10-15). The header's profession menu still filters.
 
 local function CreateProfessionCell(parent, i)
-    local width = (WIDTH - 32 - (PROFESSION_CELLS - 1) * 8) / PROFESSION_CELLS
-    local cell = CreateFrame("Button", nil, parent, "BackdropTemplate")
-    cell:SetSize(width, 60)
-    cell:SetPoint("TOPLEFT", 16 + (i - 1) * (width + 8), -42)
+    local width = (WIDTH - PROFESSION_LEFT - 16 - (PROFESSION_CELLS - 1) * 10) / PROFESSION_CELLS
+    local cell = CreateFrame("Frame", nil, parent)
+    cell:SetSize(width, BOTTOM_HEIGHT - 20)
+    cell:SetPoint("TOPLEFT", PROFESSION_LEFT + (i - 1) * (width + 10), -10)
     cell.name = UI.Text(cell, "small", "text")
-    cell.name:SetPoint("TOPLEFT", 10, -8)
-    cell.name:SetPoint("RIGHT", cell, "RIGHT", -6, 0)
+    cell.name:SetPoint("TOPLEFT", 0, -4)
+    cell.name:SetPoint("RIGHT", cell, "RIGHT", 0, 0)
+    cell.name:SetWordWrap(false)
     cell.profit = UI.Text(cell, "body")
     cell.profit:SetPoint("TOPLEFT", cell.name, "BOTTOMLEFT", 0, -4)
-    cell.conc = UI.Text(cell, "label", "conc")
-    cell.conc:SetPoint("TOPLEFT", cell.profit, "BOTTOMLEFT", 0, -3)
+    cell.track = cell:CreateTexture(nil, "BACKGROUND")
+    cell.track:SetColorTexture(addon:Color("barEmpty"))
+    cell.track:SetPoint("BOTTOMLEFT", 0, 2)
+    cell.track:SetSize(width, 4)
+    cell.fill = cell:CreateTexture(nil, "ARTWORK")
+    cell.fill:SetColorTexture(addon:Color("gold"))
+    cell.fill:SetPoint("LEFT", cell.track, "LEFT")
+    cell.fill:SetHeight(4)
+    cell:EnableMouse(true)
     UI.SetTooltip(cell, function(tooltip)
         if not cell.item then return end
-        tooltip:AddLine(cell.item.profession, 1, 1, 1)
+        tooltip:AddLine(addon:ProfessionIconText(cell.item.profession) .. cell.item.profession, 1, 1, 1)
+        tooltip:AddLine("All your characters, in the dates picked at the top.", 0.6, 0.6, 0.6, true)
         tooltip:AddDoubleLine("Profit on sales", Signed(cell.item.profit), 0.8, 0.8, 0.8, 1, 1, 1)
         tooltip:AddDoubleLine("Sales", Money(cell.item.sales), 0.8, 0.8, 0.8, 1, 1, 1)
-        if cell.item.concMax > 0 then
-            tooltip:AddDoubleLine("Concentration", string.format("%d / %d", cell.item.concCurrent, cell.item.concMax),
-                0.8, 0.8, 0.8, 0.91, 0.76, 0.35)
+        if cell.share then
+            tooltip:AddDoubleLine("Share of your profit", string.format("%.0f%%", cell.share * 100), 0.8, 0.8, 0.8, 1, 1, 1)
         end
-        addon:ClickHint(tooltip, cell.selected and "Click to show all professions" or "Click to show only this profession", true)
     end)
     return cell
 end
@@ -1001,26 +1058,42 @@ local function Create(parent)
     -- "followed: +320g" (FollowedLabel, also on the Characters tab)
     view.followed = addon:FollowedLabel(actions)
     view.followed:SetPoint("LEFT", view.actionsTitle, "RIGHT", 10, -1)
-    -- The same suggestions split into a to-do list per character
-    view.byCharacter = UI.Button(actions, "By character", 100, 22, function() addon:ShowTab("characters") end)
-    view.byCharacter:SetPoint("TOPRIGHT", -12, -11)
-    UI.SetTooltip(view.byCharacter, function(tooltip)
-        tooltip:AddLine("By character", 1, 1, 1)
-        tooltip:AddLine("A to-do list for each character: what to craft on who, and how many.", 0.8, 0.8, 0.8, true)
-    end, "ANCHOR_BOTTOM")
     -- "2 hidden": suggestions hidden with Not this, so they can always be
     -- brought back, even once their card is gone
     view.hidden = addon:HiddenSuggestionsButton(actions)
-    view.hidden:SetPoint("RIGHT", view.byCharacter, "LEFT", -8, 0)
+    view.hidden:SetPoint("TOPRIGHT", -12, -13)
     view.actionRows = {}
     for i = 1, ACTION_COUNT do
         view.actionRows[i] = CreateActionRow(actions, i)
     end
     view.actionsEmpty = UI.Text(actions, "body", "muted", "CENTER")
-    view.actionsEmpty:SetPoint("CENTER", 0, -10)
+    view.actionsEmpty:SetPoint("CENTER", 0, 4)
     view.actionsEmpty:SetWidth(HALF_WIDTH - 60)
     view.actionsEmpty:SetWordWrap(true)
-    view.actionsEmpty:SetText("Nothing to do yet. Open your professions to load recipes, and scan the AH with Auctionator for prices.")
+
+    -- Your other characters, most gold waiting first: the way to the
+    -- Characters tab's to-do lists (was a "By character" button)
+    local others = CreateFrame("Button", nil, actions, "BackdropTemplate")
+    view.others = others
+    others:SetPoint("BOTTOMLEFT", 16, 12)
+    others:SetPoint("BOTTOMRIGHT", -16, 12)
+    others:SetHeight(OTHERS_HEIGHT)
+    others.text = UI.Text(others, "small", "text")
+    others.text:SetPoint("LEFT", 12, 0)
+    others.text:SetPoint("RIGHT", -12, 0)
+    others.text:SetWordWrap(false)
+    others:SetScript("OnClick", function() addon:ShowTab("characters") end)
+    others:HookScript("OnEnter", function(self) self:SetBackdropBorderColor(addon:Color("gold")) end)
+    others:HookScript("OnLeave", function(self) self:SetBackdropBorderColor(addon:Color("borderStrong")) end)
+    UI.SetTooltip(others, function(tooltip)
+        tooltip:AddLine("Your other characters", 1, 1, 1)
+        tooltip:AddLine("What their to-do lists are worth, most first. Log in on one to do it there.", 0.6, 0.6, 0.6, true)
+        for _, o in ipairs(others.list or {}) do
+            tooltip:AddDoubleLine(o.name, string.format("%d to do  ·  %s", o.count, Signed(o.total)),
+                0.9, 0.9, 0.9, 0.37, 0.81, 0.48)
+        end
+        addon:ClickHint(tooltip, "Click for every character's to-do list (Characters tab).")
+    end, "ANCHOR_BOTTOM")
     view.setup = CreateSetup(actions)
 
     -- Chart
@@ -1069,10 +1142,13 @@ local function Create(parent)
     professions:SetPoint("TOPLEFT", 0, BOTTOM_TOP)
     professions:SetSize(WIDTH, BOTTOM_HEIGHT)
     local professionsTitle = UI.Text(professions, "heading")
-    professionsTitle:SetPoint("TOPLEFT", 16, -16)
-    professionsTitle:SetText("By profession")
+    professionsTitle:SetPoint("TOPLEFT", 16, -14)
+    professionsTitle:SetText("Profit by profession")
     view.professionsNote = UI.Text(professions, "label", "dim")
-    view.professionsNote:SetPoint("LEFT", professionsTitle, "RIGHT", 10, -1)
+    view.professionsNote:SetPoint("TOPLEFT", professionsTitle, "BOTTOMLEFT", 0, -5)
+    view.professionsEmpty = UI.Text(professions, "small", "muted")
+    view.professionsEmpty:SetPoint("LEFT", PROFESSION_LEFT, 0)
+    view.professionsEmpty:SetText("Shows here once you've sold something.")
     view.cells = {}
     for i = 1, PROFESSION_CELLS do
         view.cells[i] = CreateProfessionCell(professions, i)
@@ -1117,18 +1193,19 @@ local function Refresh(view, state)
     end
     view.setup:SetShown(inSetup)
     view.setup.close:SetShown(inSetup)
-    view.byCharacter:SetShown(not inSetup)
     view.hidden:Update(inSetup)
-    view.actionsTitle:SetText(not inSetup and "Do this next"
+    view.actionsTitle:SetText(not inSetup and ("Do this next on " .. MyName())
         or allDone and "Getting started: all done, close this with X" or "Getting started")
 
-    -- Do this next
+    -- Do this next, for the character you're on
     local list = {}
-    local concAction = ConcentrationAction(conc)
+    local concAction = ConcentrationAction({ rows = Mine(conc.rows, "key") })
     if concAction then table.insert(list, concAction) end
     local cooldownAction = CooldownAction(prof)
     if cooldownAction then table.insert(list, cooldownAction) end
-    local craftsAction = CraftsAction(addon:GetBestCrafts(prof, CRAFTS_LISTED), prof)
+    local best = Mine(addon:GetBestCrafts(prof, math.huge))
+    for i = #best, CRAFTS_LISTED + 1, -1 do best[i] = nil end
+    local craftsAction = CraftsAction(best, prof)
     if craftsAction then table.insert(list, craftsAction) end
     -- Note what's suggested, so a craft of it soon after counts as followed
     if not inSetup then
@@ -1146,19 +1223,53 @@ local function Refresh(view, state)
     local dealsAction = DealsAction(prof)
     if dealsAction then table.insert(list, dealsAction) end
     -- A card that wouldn't fit in the panel is left out rather than spill
-    -- over the profession strip
+    -- over the other characters line
     local top = -44
     for i, row in ipairs(view.actionRows) do
         local shown = false
         if list[i] and not inSetup then
             FillActionRow(row, list[i])
-            if top - row:GetHeight() >= -(MIDDLE_HEIGHT - 12) then
+            if top - row:GetHeight() >= -(MIDDLE_HEIGHT - 12 - OTHERS_HEIGHT - ACTION_ROW_GAP) then
                 row:SetPoint("TOPLEFT", 16, top)
                 top = top - row:GetHeight() - ACTION_ROW_GAP
                 shown = true
             end
         end
         row:SetShown(shown)
+    end
+
+    -- Your other characters, most gold waiting first
+    local others = {}
+    if not inSetup then
+        for key, t in pairs(addon:GetCharacterTodo(prof, conc)) do
+            local c = GoldsmithDB.characters[key]
+            if key ~= addon.charKey and c and t.total > 0 then
+                local color = c.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[c.class]
+                table.insert(others, { name = c.name or key, total = t.total, count = #t.items,
+                    colored = color and ("|c" .. color.colorStr .. (c.name or key) .. "|r") or (c.name or key) })
+            end
+        end
+        table.sort(others, function(a, b) return a.total > b.total end)
+    end
+    view.others.list = others
+    if #others > 0 then
+        local parts = {}
+        for i = 1, math.min(#others, OTHERS_SHOWN) do
+            table.insert(parts, string.format("%s %s", others[i].colored, addon:Colorize(Signed(others[i].total), "profit")))
+        end
+        view.others.text:SetText("Other characters:  " .. table.concat(parts, "   ·   ")
+            .. (#others > OTHERS_SHOWN and string.format("   +%d more", #others - OTHERS_SHOWN) or "") .. "   >")
+    else
+        view.others.text:SetText(addon:Colorize("Nothing waiting on your other characters.", "muted") .. "   >")
+    end
+    UI.Style(view.others, "panelRaised", "borderStrong")
+    view.others:SetShown(not inSetup)
+
+    if #list == 0 and not inSetup then
+        view.actionsEmpty:SetText(next(GoldsmithDB.recipes) == nil
+            and "Nothing to do yet. Open your professions to load recipes."
+            or #others > 0 and string.format("Nothing worth doing on %s right now. %s has the most waiting.", MyName(), others[1].colored)
+            or string.format("Nothing worth doing on %s right now.", MyName()))
     end
     view.actionsEmpty:SetShown(#list == 0 and not inSetup)
     loading:Done(view.actionsPanel)
@@ -1194,28 +1305,35 @@ local function Refresh(view, state)
     view.chartEnd:SetText((not empty and last) and ShortDay(last.day) or "")
     loading:Done(view.chartPanel)
 
-    -- By profession
-    local breakdown = addon:GetProfessionBreakdown(range, prof == "All" and conc or addon:GetConcentrationOverview("All"))
-    view.professionsNote:SetText(#breakdown > PROFESSION_CELLS
-        and string.format("top %d by profit, click one to filter", PROFESSION_CELLS) or "click one to filter")
+    -- Profit by profession: only ones with sales, best first (whatever the
+    -- header's profession: it's the ranking that matters here)
+    local ranked = {}
+    for _, item in ipairs(addon:GetProfessionBreakdown(range)) do
+        if item.sales ~= 0 or item.profit ~= 0 then table.insert(ranked, item) end
+    end
+    local topProfit, totalProfit = 0, 0
+    for _, item in ipairs(ranked) do
+        topProfit = math.max(topProfit, item.profit)
+        if item.profit > 0 then totalProfit = totalProfit + item.profit end
+    end
+    view.professionsNote:SetText(addon:GetDateRange(range).label .. ", all characters")
     for i, cell in ipairs(view.cells) do
-        local item = breakdown[i]
+        local item = ranked[i]
         cell.item = item
         if item then
-            cell.selected = item.profession == prof
-            UI.Style(cell, cell.selected and "highlight" or "panelRaised", cell.selected and "borderGold" or nil)
             cell.name:SetText(addon:ProfessionIconText(item.profession) .. item.profession)
             cell.profit:SetText(Signed(item.profit))
             cell.profit:SetTextColor(addon:Color(addon:MoneyColor(item.profit)))
-            cell.conc:SetText(item.concMax > 0 and string.format("Conc %d / %d", item.concCurrent, item.concMax) or "")
-            cell:SetScript("OnClick", function()
-                state.setProfession(cell.selected and "All" or item.profession)
-            end)
+            local share = topProfit > 0 and math.max(item.profit, 0) / topProfit or 0
+            cell.fill:SetWidth(math.max(cell.track:GetWidth() * share, 1))
+            cell.fill:SetShown(share > 0)
+            cell.share = totalProfit > 0 and item.profit > 0 and item.profit / totalProfit or nil
             cell:Show()
         else
             cell:Hide()
         end
     end
+    view.professionsEmpty:SetShown(#ranked == 0)
     loading:Done(view.professionsPanel)
 end
 
@@ -1223,7 +1341,7 @@ end
 local function Legend()
     return {
         { "click", "a suggestion: its plan" },
-        { "click", "a profession: show only it" },
+        { "click", "other characters: their to-do lists" },
         { "hover", "a number: how it's worked out" },
         { "ctrl", "in a hover: explain" },
     }

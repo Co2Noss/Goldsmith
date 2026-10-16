@@ -282,7 +282,9 @@ function addon:CreateWindow()
     frame:SetScript("OnKeyDown", function(self, key)
         if key ~= "ESCAPE" or InCombatLockdown() then return end
         local handled = false
-        if GoldsmithHelp and GoldsmithHelp:IsShown() then
+        if addon.HelpModeActive and addon:HelpModeActive() then
+            addon:ExitHelpMode(); handled = true
+        elseif GoldsmithHelp and GoldsmithHelp:IsShown() then
             GoldsmithHelp:Hide(); handled = true
         elseif GoldsmithSupport and GoldsmithSupport:IsShown() then
             GoldsmithSupport:Hide(); handled = true
@@ -409,11 +411,22 @@ function addon:CreateWindow()
         { font = "close", hoverColor = "loss" })
     closeButton:SetPoint("RIGHT", -8, 0)
 
-    -- Between the filters and the close button, on two lines when it
+    -- Help mode (HelpMode.lua): the window's only "?", so explanations are
+    -- there when asked for without question marks everywhere (user,
+    -- 2026-10-15)
+    local helpButton = UI.IconButton(header, 34, "?", nil, function() addon:ToggleHelpMode() end,
+        { font = "close" })
+    helpButton:SetPoint("RIGHT", closeButton, "LEFT", -2, 0)
+    UI.SetTooltip(helpButton, function(tooltip)
+        tooltip:AddLine("What's this?", 1, 1, 1)
+        tooltip:AddLine("Click, then click any part of the window to see what it's for.", 0.8, 0.8, 0.8, true)
+    end, "ANCHOR_BOTTOM")
+
+    -- Between the filters and the help button, on two lines when it
     -- doesn't fit
     local priceText = UI.Text(header, "small", "muted", "RIGHT")
     priceText:SetPoint("LEFT", expansionButton, "RIGHT", 12, 0)
-    priceText:SetPoint("RIGHT", closeButton, "LEFT", -12, 0)
+    priceText:SetPoint("RIGHT", helpButton, "LEFT", -10, 0)
     priceText:SetWordWrap(true)
     priceText:SetMaxLines(2)
     -- Without Auctionator: a hover on where prices come from, and how to
@@ -523,13 +536,17 @@ function addon:CreateWindow()
     -- For the tour (Tour.lua): a tab's screen, once it has been opened
     function addon:GetTabScreen(key) return created[key] end
     function addon:CurrentTab() return ui.tab end
+    -- Also for help mode (HelpMode.lua)
     addon.tourParts = {
         filters = { professionButton, expansionButton },
         price = priceText,
         settings = settingsButton,
         legend = legend,
         tabs = tabBar.buttons,
+        tabArea = tabArea,
+        filterChip = filterChip,
         close = closeButton,
+        help = helpButton,
     }
     local function GetScreen(key)
         if created[key] then return created[key] end
@@ -681,6 +698,7 @@ function addon:CreateWindow()
     frame:SetScript("OnHide", function()
         settings:Hide()
         if addon.EndTour then addon:EndTour() end
+        if addon.ExitHelpMode then addon:ExitHelpMode() end
     end)
 
     addon.window = frame
