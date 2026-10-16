@@ -31,7 +31,10 @@ local CRAFTS_SHOWN = 3
 local ACTION_ROW_GAP = 8
 local CRAFTS_LISTED = 5
 local OTHERS_HEIGHT = 30
-local OTHERS_SHOWN = 3
+local OTHERS_SHOWN = 2
+-- The tile's profession icons: the value font draws icons about twice
+-- this size (20 came out bigger than the numbers; user, 2026-10-15)
+local CONC_ICON = 9
 local PROFESSION_CELLS = 6
 local PROFESSION_LEFT = 190
 
@@ -187,7 +190,7 @@ local function FillConcentrationTile(tile, conc)
         -- Each with its profession's icon, so two say which is which (user,
         -- 2026-10-15)
         local icon = addon:GetProfessionIcon(row.profession)
-        table.insert(amounts, (icon and ("|T" .. icon .. ":20:20|t ") or "")
+        table.insert(amounts, (icon and ("|T" .. icon .. ":" .. CONC_ICON .. ":" .. CONC_ICON .. "|t ") or "")
             .. (#mine == 1 and string.format("%d / %d", row.current, row.max) or tostring(math.floor(row.current))))
     end
     local note
