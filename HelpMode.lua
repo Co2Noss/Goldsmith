@@ -129,7 +129,7 @@ TAB_PARTS.crafts = function(list)
             "Each material and where it comes from: your bags, a vendor, the AH, or crafting it first. Right-click one to change that.",
             plan.list)
         Add(list, "Material qualities",
-            "The mix of material qualities. Goldsmith picks the best one for this quality and lists the top three to compare. Click one to use it instead.",
+            "The mix of material qualities. Goldsmith picks the best one for this quality and lists the top three to compare. Click one to use it instead, or click the bar to hide or show them.",
             plan.mixes)
         Add(list, "Cost and profit",
             "What it all costs, what it sells for and the profit, worked out from your own crafting stats. Hover a number for how.",
@@ -169,7 +169,9 @@ TAB_PARTS.queue = function(list)
     if not view then return end
     Add(list, "Whose queue", "Each character has their own queue. Switch between them here.", view.who)
     Add(list, "Queue", "Crafts lined up to make, added from a plan or by right-clicking a craft.", view.list)
-    Add(list, "Shopping list", "One shopping list for everything in the queue.", view.shop)
+    Add(list, "Shopping list",
+        "With Auctionator, one shopping list for everything in this character's queue (the one picked in Whose queue). Items come off it as you buy them.",
+        view.shop)
     Add(list, "Craft next", "Does the next step of the queue: one click per craft.", view.craft)
 end
 
@@ -178,10 +180,35 @@ TAB_PARTS.items = function(list)
     if not view then return end
     local page = view.page
     if page:IsShown() then
-        Add(list, "Price history", "What it has sold for over time.", page.chart)
-        Add(list, "An item's page",
-            "Its break-even price, what yours cost you, what it sells for, and everything you've done with it.",
-            page)
+        -- A part for each piece (user, 2026-10-15: one box for the whole
+        -- page said too little, and switching tiers wasn't obvious)
+        local t = page.tiles or {}
+        Add(list, "AH price", "What it sells for on the AH right now, and where that price comes from.", t[1])
+        Add(list, "Usual price", "Its usual price, and how today's price compares. Hover it for the range.", t[2])
+        Add(list, "Sells", "How well it sells in your region, and how many you sell a day.", t[3])
+        Add(list, "You have", "How many you hold on every character: bags, banks and AH listings.", t[4])
+        Add(list, "Break-even",
+            "The lowest price that doesn't lose money on what yours cost you, after the AH cut. List above this.",
+            t[5])
+        Add(list, "What it costs", "What yours cost you, crafted or bought, next to the AH price now.",
+            page.concNote:GetParent())
+        local firstTier, lastTier
+        for _, row in ipairs(page.tierRows or {}) do
+            if Shown(row) then
+                firstTier = firstTier or row
+                lastTier = row
+            end
+        end
+        Add(list, "Tiers",
+            "Each quality of this item, with its price and how many you have. Click one to switch this page to it.",
+            firstTier, lastTier ~= firstTier and lastTier or nil)
+        Add(list, "Price history",
+            "What it has sold for over the dates picked at the top. The band is its usual range. Hover a point for that day.",
+            page.chartNote:GetParent())
+        Add(list, "Your activity",
+            "Everything you've done with it, newest first: crafted, bought, posted and sold, with the gold each time. The link at the bottom opens it all in History.",
+            page.earned:GetParent())
+        Add(list, "Craft this", "Opens its plan on the Crafts tab.", page.craft)
         return
     end
     Add(list, "Find an item", "Search any item: its page has prices, costs and everything you've done with it.",
@@ -323,19 +350,36 @@ local function FitBox()
         + (box.note:IsShown() and (10 + box.note:GetStringHeight()) or 0) + 14)
 end
 
--- Below the part when it's in the top half of the screen, else above;
--- the intro sits under the ? button
+-- Beside the window when there's room, level with the part (or the top of
+-- the window for the intro), so it never covers a part you may want to ask
+-- about next (user, 2026-10-15: the intro sat on Show and Settings). Below
+-- the window next, and only then by the part itself.
+local SIDE_GAP = 12
 local function PlaceBox(entry)
     box:ClearAllPoints()
-    if not entry then
-        box:SetPoint("TOPRIGHT", Part("help"), "BOTTOMRIGHT", 0, -10)
-        return
+    local wl, wb, wr, wt = Edges(addon.window)
+    local top = wt
+    if entry then
+        local _, _, _, partTop = Edges(entry.first)
+        top = partTop or wt
     end
-    local _, y = entry.first:GetCenter()
-    if y and y > UIParent:GetHeight() / 2 then
-        box:SetPoint("TOPLEFT", entry.first, "BOTTOMLEFT", 0, -10)
+    local width, height = box:GetWidth(), box:GetHeight()
+    local screenWidth = UIParent:GetWidth()
+    if wr and wr + SIDE_GAP + width <= screenWidth then
+        box:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", wr + SIDE_GAP, top)
+    elseif wl and wl - SIDE_GAP - width >= 0 then
+        box:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", wl - SIDE_GAP, top)
+    elseif wb and wb - SIDE_GAP - height >= 0 then
+        box:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", wl, wb - SIDE_GAP)
+    elseif not entry then
+        box:SetPoint("TOPRIGHT", Part("help"), "BOTTOMRIGHT", 0, -10)
     else
-        box:SetPoint("BOTTOMLEFT", entry.first, "TOPLEFT", 0, 10)
+        local _, y = entry.first:GetCenter()
+        if y and y > UIParent:GetHeight() / 2 then
+            box:SetPoint("TOPLEFT", entry.first, "BOTTOMLEFT", 0, -10)
+        else
+            box:SetPoint("BOTTOMLEFT", entry.first, "TOPLEFT", 0, 10)
+        end
     end
 end
 
@@ -345,10 +389,11 @@ local function ShowBox(entry)
     box.text:SetText(entry and entry.text or INTRO)
     box.note:SetText("Click another outlined part, or ? to stop.")
     box.note:SetShown(entry ~= nil)
+    -- Sized first: where it goes depends on its height
+    FitBox()
     PlaceBox(entry)
     box:Show()
-    FitBox()
-    C_Timer.After(0, function() if box:IsShown() then FitBox() end end)
+    C_Timer.After(0, function() if box:IsShown() then FitBox() PlaceBox(selected) end end)
 end
 
 Select = function(entry)

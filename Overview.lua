@@ -184,8 +184,11 @@ local function FillConcentrationTile(tile, conc)
     for _, row in ipairs(mine) do
         heldBack = heldBack + #(row.capped or {})
         gain = gain + (row.gain or 0)
-        table.insert(amounts, #mine == 1 and string.format("%d / %d", row.current, row.max)
-            or tostring(math.floor(row.current)))
+        -- Each with its profession's icon, so two say which is which (user,
+        -- 2026-10-15)
+        local icon = addon:GetProfessionIcon(row.profession)
+        table.insert(amounts, (icon and ("|T" .. icon .. ":20:20|t ") or "")
+            .. (#mine == 1 and string.format("%d / %d", row.current, row.max) or tostring(math.floor(row.current))))
     end
     local note
     if #mine == 0 then
@@ -197,7 +200,7 @@ local function FillConcentrationTile(tile, conc)
     else
         note = "nothing worth it right now"
     end
-    tile:Set(label, #mine > 0 and table.concat(amounts, " · ") or "-", #mine > 0 and "conc" or "muted", note)
+    tile:Set(label, #mine > 0 and table.concat(amounts, "   ") or "-", #mine > 0 and "conc" or "muted", note)
     tile.tooltip = function(tooltip)
         -- A table: concentration, when it's full and what it's worth each in
         -- its own column (user, 2026-10-12: the right side was hard to read)
@@ -232,7 +235,8 @@ local function FillConcentrationTile(tile, conc)
             end
         end
         UI.TooltipTable(tooltip, "Concentration, every character", { "Now", "Full in", "Extra" }, rows)
-        tooltip:AddLine(string.format("The tile shows %s only: concentration can only be spent on the character who has it.",
+        -- With Ctrl: the tile's title already names the character (user)
+        addon:Explain(tooltip, string.format("The tile shows %s only: concentration can only be spent on the character who has it.",
             MyName()), 0.6, 0.6, 0.6, true)
         addon:Explain(tooltip, "Extra = profit on top of crafting the same things without concentration.", 0.6, 0.6, 0.6, true)
         addon:Explain(tooltip, "Alts' concentration is worked out from when you last logged in on them.", 0.6, 0.6, 0.6, true)

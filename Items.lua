@@ -215,7 +215,7 @@ local CHEAP_COLUMNS = {
     { key = "price", label = "Price now", width = 90, justify = "RIGHT" },
     { key = "usual", label = "Usually", width = 90, justify = "RIGHT" },
     { key = "have", label = "You have", width = 70, justify = "RIGHT" },
-    { key = "usedIn", label = "Used in", width = 150 },
+    { key = "usedIn", label = "Used in", width = 150, gap = 24 },
 }
 
 -- Cheap materials, each with what you hold (every character) and the

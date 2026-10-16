@@ -350,8 +350,9 @@ end
 --
 -- Each step: tab, title, text (shown on the step), target. On another tab,
 -- lead (a short lead-in) shows until the tab is clicked. screen: a screen
--- inside the tab to open first ("plan", "page"); until then lead, ask
--- (what to click) and clickTarget (where).
+-- inside the tab to open first ("plan", "page"); until then pickLead (or
+-- lead; a different line, so it isn't the tab step twice), ask (what to
+-- click) and clickTarget (where).
 local STEPS = {
     { tab = "overview", title = "Do this next",
       text = "Each step lights up one part of the window. This one is what to do now on the character you're on, best first. Click one to open its plan.",
@@ -366,7 +367,8 @@ local STEPS = {
           return view and (view.others:IsShown() and view.others or view.actionsPanel)
       end },
     { tab = "crafts", screen = "plan", title = "A craft's plan",
-      lead = "Every craft has a plan behind it.",
+      lead = "Next: everything your characters can craft.",
+      pickLead = "Every craft has a plan behind it.",
       ask = "Click the highlighted " .. CRAFT_PICK .. " to open its plan.",
       askAny = "Click any craft in the list to open its plan.",
       clickTarget = function()
@@ -379,7 +381,8 @@ local STEPS = {
           return view and view.plan
       end },
     { tab = "crafts", screen = "plan", title = "Materials",
-      lead = "Every craft has a plan behind it.",
+      lead = "Next: everything your characters can craft.",
+      pickLead = "Every craft has a plan behind it.",
       ask = "Click the highlighted " .. CRAFT_PICK .. " to open its plan.",
       askAny = "Click any craft in the list to open its plan.",
       clickTarget = function()
@@ -392,7 +395,8 @@ local STEPS = {
           return view and view.plan.list
       end },
     { tab = "crafts", screen = "plan", title = "Shopping list",
-      lead = "Every craft has a plan behind it.",
+      lead = "Next: everything your characters can craft.",
+      pickLead = "Every craft has a plan behind it.",
       ask = "Click the highlighted " .. CRAFT_PICK .. " to open its plan.",
       askAny = "Click any craft in the list to open its plan.",
       clickTarget = function()
@@ -736,7 +740,7 @@ function addon:TourStep(n)
         end
         box.title:SetText(step.title)
         box.text:SetText(wrongPick and string.format("That's %s. The tour shows a good example, so this one first; you can look at any of them after.", wrongPick)
-            or step.lead)
+            or step.pickLead or step.lead)
         wrongPick = nil
         box.ask:SetText(row and step.ask or step.askAny or step.ask)
         box.ask:Show()
@@ -800,9 +804,19 @@ function addon:StartTour()
 end
 
 function addon:EndTour()
+    local wasRunning = current ~= nil or saved ~= nil
     current, waiting = nil, nil
     StopWatching()
     DropShield()
+    -- The tour's picks don't stay behind (user, 2026-10-15: Gloaming Alloy
+    -- was still open on Crafts after it): Crafts and Items back to their
+    -- lists. Only after a tour: closing the window also ends it.
+    if wasRunning then
+        for _, key in ipairs({ "crafts", "items" }) do
+            local screen = addon:GetTabScreen(key)
+            if screen and screen.def.reset then screen.def.reset(screen.view) end
+        end
+    end
     UseOwnData()
     if box then box:Hide() end
     if highlight then

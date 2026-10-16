@@ -966,12 +966,16 @@ function UI.List(parent, opts)
         local fixed, flexCount = 0, 0
         for _, col in ipairs(list.columns) do
             if col.width then fixed = fixed + col.width else flexCount = flexCount + 1 end
+            fixed = fixed + (col.gap or 0)
         end
         local gaps = LIST_GAP * math.max(#list.columns - 1, 0)
         local flex = flexCount > 0 and math.max((width - 2 * LIST_PAD - fixed - gaps) / flexCount, 40) or 0
         local x, layout = LIST_PAD, {}
         for _, col in ipairs(list.columns) do
             local w = col.width or flex
+            -- col.gap: extra room before a column (left text after a
+            -- right-aligned number read as one)
+            x = x + (col.gap or 0)
             layout[col.key] = { x = x, width = w }
             x = x + w + LIST_GAP
         end
